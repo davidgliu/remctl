@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.6.0 — 2026-07-30
+
+Write confirmations are now fully machine-readable: every `edit` outcome under `--json` identifies the reminder it touched, and the no-op path no longer breaks parsers.
+
+- **`edit … --json` echoes `title`** on all four write paths (bridge, private-only, AppleScript fallback, and clone-delete moves between lists), matching the existing `add`/`done`/`undone`/`delete` convention. Agents and UI consumers can confirm a write without a follow-up `info` call.
+- **Structured no-op result.** `edit` with nothing to change used to print the bare line `Nothing to update.` even under `--json`, breaking any strict parser. It now emits `{"status": "unchanged", "code": "nothing_to_update", "id": …, "title": …, "message": "Nothing to update."}` on stdout with exit 0. `status` is deliberately not `error`, so consumers that branch on error states keep working. Human (non-`--json`) output is byte-identical to before.
+- Regression coverage for the title echo on every write path and for the structured no-op (including that it never falls through to AppleScript).
+
 ## 1.5.1 — 2026-07-18
 
 - Fixed a startup crash on Python 3.14 caused by the literal percentage in the `--image-width` help text being interpreted as an argparse formatting token. Root help, diagnostics, and normal commands now construct the parser correctly across supported Python versions.
