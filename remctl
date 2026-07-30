@@ -4474,6 +4474,7 @@ def clone_reminder_tree_to_list_or_die(db, reminder, target_list_ref, child_rows
         "status": "updated",
         "id": new_row["Z_PK"],
         "oldId": reminder["Z_PK"],
+        "title": _row_get(new_row, "ZTITLE", _row_get(reminder, "ZTITLE")),
         "list": target_list_ref["title"],
         "objectUUID": new_ckid,
         "subtasksMoved": len(new_children),
@@ -4489,6 +4490,7 @@ def emit_clone_delete_move_result(args, move_result, target_list_ref):
             "status": "updated",
             "id": move_result["id"],
             "oldId": move_result["oldId"],
+            "title": move_result.get("title"),
             "list": move_result["list"],
             "objectUUID": move_result["objectUUID"],
             "subtasksMoved": move_result["subtasksMoved"],
@@ -8490,6 +8492,10 @@ def cmd_edit(a):
     if not r:
         print(f"Error: #{a.id} not found", file=sys.stderr)
         sys.exit(1)
+    # The title every --json result echoes: the new one when the edit renames the
+    # reminder, otherwise the title it keeps. Matches add/done/undone/delete, which
+    # all echo `title` so a caller never has to re-read the reminder to label it.
+    resulting_title = a.title if getattr(a, "title", None) else _row_get(r, "ZTITLE")
     target_list_ref = None
     target_list_name = getattr(a, "list", None)
     target_list_id = getattr(a, "list_id", None)
@@ -8665,7 +8671,7 @@ def cmd_edit(a):
                     list_pk=target_list_pk,
                 ) if wants_private else []
                 if a.json:
-                    payload = {"status": "updated", "id": a.id}
+                    payload = {"status": "updated", "id": a.id, "title": resulting_title}
                     if target_list_ref:
                         payload["list"] = target_list_name
                         if target_list_ref.get("method") != "exact":
@@ -8705,7 +8711,12 @@ def cmd_edit(a):
                 list_pk=target_list_pk,
             )
             if a.json:
-                print(json.dumps({"status": "updated", "id": a.id, "private": private_results}, indent=2))
+                print(json.dumps({
+                    "status": "updated",
+                    "id": a.id,
+                    "title": resulting_title,
+                    "private": private_results,
+                }, indent=2))
             else:
                 print(f"Updated #{a.id}")
                 print(f"Private metadata: applied {len(private_results)} update{'s' if len(private_results) != 1 else ''}")
@@ -8766,13 +8777,25 @@ def cmd_edit(a):
             parts.append(as_date_assign(dt))
         if parts and osa_by_id_try(r["list_name"], _rem_id(r), chr(10).join(parts)):
             if a.json:
-                print(json.dumps({"status": "updated", "id": a.id}))
+                print(json.dumps({"status": "updated", "id": a.id, "title": resulting_title}))
             else:
                 print(f"Updated #{a.id}")
             return
 
     if not has_applescript_fields and not has_bridge_only:
-        print("Nothing to update.")
+        # No-op edit: a real, non-error outcome. Under --json it has to be a
+        # structured payload like every other result, not a bare English line
+        # that breaks the caller's JSON parse. Exit code stays 0.
+        if getattr(a, "json", False):
+            print(json.dumps({
+                "status": "unchanged",
+                "code": "nothing_to_update",
+                "id": a.id,
+                "title": resulting_title,
+                "message": "Nothing to update.",
+            }))
+        else:
+            print("Nothing to update.")
         return
     if not r["ZCKIDENTIFIER"]:
         _refuse_unsafe_title_fallback(r, "edit it", "The reminder has no stable identifier")

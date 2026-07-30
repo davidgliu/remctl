@@ -5184,6 +5184,132 @@ class CliTests(unittest.TestCase):
         self.assertTrue(payload["clearAlarms"])
         self.assertNotIn("alarm", payload)
 
+    @staticmethod
+    def _edit_args(**overrides):
+        base = dict(
+            id=1, json=True, title=None, list=None, list_id=None,
+            notes=None, priority=None, due=None, url=None, recurrence=None,
+            alarm=None, private=False, private_metadata=False, tags=None,
+            grocery=False, section=None, section_id=None, new_section=None,
+            subtask=None, image=None, flagged=None, urgent=None,
+            early_reminder=None, location_title=None, latitude=None,
+            longitude=None, radius=100, proximity="arriving", address=None,
+        )
+        base.update(overrides)
+        return SimpleNamespace(**base)
+
+    def test_cmd_edit_json_echoes_the_new_title_after_a_rename(self):
+        reminder = self._FAKE_REMINDER
+        args = self._edit_args(title="Renamed")
+        with (
+            mock.patch.object(self.remctl, "open_db", return_value=object()),
+            mock.patch.object(self.remctl, "q_reminder", return_value=reminder),
+            mock.patch.object(self.remctl, "bridge_available", return_value=True),
+            mock.patch.object(
+                self.remctl,
+                "bridge_call_result",
+                return_value=self._bridge_result({"status": "updated", "id": reminder["ZCKIDENTIFIER"]}),
+            ),
+            contextlib.redirect_stdout(io.StringIO()) as stdout,
+        ):
+            self.remctl.cmd_edit(args)
+
+        payload = json.loads(stdout.getvalue())
+        self.assertEqual(payload["status"], "updated")
+        self.assertEqual(payload["id"], 1)
+        self.assertEqual(payload["title"], "Renamed")
+
+    def test_cmd_edit_json_echoes_the_existing_title_when_the_edit_is_not_a_rename(self):
+        reminder = self._FAKE_REMINDER
+        args = self._edit_args(priority="high")
+        with (
+            mock.patch.object(self.remctl, "open_db", return_value=object()),
+            mock.patch.object(self.remctl, "q_reminder", return_value=reminder),
+            mock.patch.object(self.remctl, "bridge_available", return_value=True),
+            mock.patch.object(
+                self.remctl,
+                "bridge_call_result",
+                return_value=self._bridge_result({"status": "updated", "id": reminder["ZCKIDENTIFIER"]}),
+            ),
+            contextlib.redirect_stdout(io.StringIO()) as stdout,
+        ):
+            self.remctl.cmd_edit(args)
+
+        self.assertEqual(json.loads(stdout.getvalue())["title"], reminder["ZTITLE"])
+
+    def test_cmd_edit_applescript_fallback_json_echoes_title(self):
+        reminder = self._FAKE_REMINDER
+        args = self._edit_args(title="Renamed")
+        with (
+            mock.patch.object(self.remctl, "open_db", return_value=object()),
+            mock.patch.object(self.remctl, "q_reminder", return_value=reminder),
+            mock.patch.object(self.remctl, "bridge_available", return_value=False),
+            mock.patch.object(self.remctl, "osa_by_id_try", return_value=True),
+            contextlib.redirect_stdout(io.StringIO()) as stdout,
+        ):
+            self.remctl.cmd_edit(args)
+
+        payload = json.loads(stdout.getvalue())
+        self.assertEqual(payload["status"], "updated")
+        self.assertEqual(payload["title"], "Renamed")
+
+    def test_cmd_edit_private_only_json_echoes_title(self):
+        reminder = self._FAKE_REMINDER
+        args = self._edit_args(private=True, flagged=True)
+        with (
+            mock.patch.object(self.remctl, "open_db", return_value=object()),
+            mock.patch.object(self.remctl, "q_reminder", return_value=reminder),
+            mock.patch.object(self.remctl, "private_available", return_value=True),
+            mock.patch.object(self.remctl, "bridge_available", return_value=True),
+            mock.patch.object(self.remctl, "bridge_call_result") as bridge_call_result,
+            mock.patch.object(
+                self.remctl,
+                "apply_private_changes",
+                return_value=[{"status": "updated", "action": "set_flagged"}],
+            ),
+            contextlib.redirect_stdout(io.StringIO()) as stdout,
+        ):
+            self.remctl.cmd_edit(args)
+
+        bridge_call_result.assert_not_called()
+        payload = json.loads(stdout.getvalue())
+        self.assertEqual(payload["status"], "updated")
+        self.assertEqual(payload["title"], reminder["ZTITLE"])
+        self.assertEqual(len(payload["private"]), 1)
+
+    def test_cmd_edit_nothing_to_update_emits_structured_json_and_exits_zero(self):
+        reminder = self._FAKE_REMINDER
+        args = self._edit_args()
+        with (
+            mock.patch.object(self.remctl, "open_db", return_value=object()),
+            mock.patch.object(self.remctl, "q_reminder", return_value=reminder),
+            mock.patch.object(self.remctl, "bridge_available", return_value=False),
+            mock.patch.object(self.remctl, "osa_by_id_try") as osa_try,
+            contextlib.redirect_stdout(io.StringIO()) as stdout,
+        ):
+            self.remctl.cmd_edit(args)
+
+        osa_try.assert_not_called()
+        payload = json.loads(stdout.getvalue())
+        self.assertEqual(payload["status"], "unchanged")
+        self.assertEqual(payload["code"], "nothing_to_update")
+        self.assertEqual(payload["id"], 1)
+        self.assertEqual(payload["title"], reminder["ZTITLE"])
+        self.assertEqual(payload["message"], "Nothing to update.")
+
+    def test_cmd_edit_nothing_to_update_stays_plain_text_without_json(self):
+        reminder = self._FAKE_REMINDER
+        args = self._edit_args(json=False)
+        with (
+            mock.patch.object(self.remctl, "open_db", return_value=object()),
+            mock.patch.object(self.remctl, "q_reminder", return_value=reminder),
+            mock.patch.object(self.remctl, "bridge_available", return_value=False),
+            contextlib.redirect_stdout(io.StringIO()) as stdout,
+        ):
+            self.remctl.cmd_edit(args)
+
+        self.assertEqual(stdout.getvalue().strip(), "Nothing to update.")
+
     def test_cmd_edit_moves_reminder_to_list_through_eventkit_bridge(self):
         reminder = self._FAKE_REMINDER
         args = SimpleNamespace(
@@ -5548,6 +5674,28 @@ class CliTests(unittest.TestCase):
         self.assertEqual(result["id"], 42)
         self.assertEqual(result["oldId"], 1)
         self.assertEqual(result["subtasksMoved"], 0)
+        # The cloned row is read back before Reminders has filled in its title,
+        # so the move result falls back to the source reminder's title.
+        self.assertEqual(result["title"], "Move me")
+
+    def test_emit_clone_delete_move_result_json_echoes_title(self):
+        args = SimpleNamespace(json=True)
+        move_result = {
+            "status": "updated",
+            "id": 42,
+            "oldId": 1,
+            "title": "Move me",
+            "list": "Projects",
+            "objectUUID": "NEW-REMINDER",
+            "subtasksMoved": 0,
+            "method": "clone-delete",
+            "delete": {"status": "deleted"},
+        }
+        target = {"id": 9, "title": "Projects", "requested": "Projects", "method": "exact"}
+        with contextlib.redirect_stdout(io.StringIO()) as stdout:
+            self.remctl.emit_clone_delete_move_result(args, move_result, target)
+
+        self.assertEqual(json.loads(stdout.getvalue())["title"], "Move me")
 
     def test_cmd_edit_resolves_private_section_against_destination_list(self):
         reminder = self._FAKE_REMINDER
