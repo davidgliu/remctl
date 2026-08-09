@@ -71,7 +71,7 @@ The uninstaller checks `~/bin` and `~/.local/bin` by default, or the single targ
 | --- | --- |
 | See what is due | `today`, `upcoming`, `overdue` |
 | Browse reminders | `lists`, `groups`, `group-info`, `smart-lists`, `templates`, `template-info`, `show`, `search`, `flagged`, `urgent`, `info`, `subtasks`, `sharees` |
-| Create and edit | `add`, `edit`, `done`, `undone`, `delete`, `flag`, `unflag` |
+| Create and edit | `add`, `edit`, `reminder-move`, `done`, `undone`, `delete`, `flag`, `unflag` |
 | Organize | `list-symbols`, `list-create`, `list-edit`, `list-pin`, `list-unpin`, `list-rename`, `list-delete`, `section-create`, `section-rename`, `section-delete`, `group-create`, `group-edit`, `group-delete`, `smart-list-create`, `smart-list-edit`, `smart-list-delete`, `template-create`, `template-apply`, `template-delete`, `sections`, `tags` |
 | Share data | `export`, `import`, `link`, `open`, `--json`, `--format table` on tabular read commands |
 | Set up the Mac | `onboard`, `permissions`, `doctor`, `setup`, `completion` |
@@ -91,6 +91,8 @@ remctl add "Team sync" -l Work -d "2026-08-28 10:00" --recurrence "monthly x2 4t
 remctl done 23880 --date "2026-05-27 09:30"
 remctl edit 23880 -d clear
 remctl edit 23880 -l Work
+remctl reminder-move 23880 --before 23881 --private
+remctl reminder-move 23880 --before 23881 --smart-list "Focus" --private
 remctl edit 23880 --private --set-tags remctl,work
 remctl section-create "Research" -l Projects --private
 remctl section-rename "Research" --new-name "Reading" -l Projects --private
@@ -253,6 +255,7 @@ remctl template-delete "Packing Template" --private --force
 Private mode covers the parts of Reminders that EventKit does not expose:
 
 - Reminder metadata: synced web rich links, synced tags, sections, shared-list assignments, rich subtasks, image attachments, real flag state, urgent state, Early Reminders, and location alarms.
+- Reminder ordering: move within an ordinary list, or within one section of a custom smart list, with `reminder-move --private`.
 - List metadata: exact `#RRGGBB` colors, official list symbols, emoji badges, Groceries list conversion/locale metadata, regular or smart-list pin state, and list group create/edit/delete.
 - Smart lists: custom smart-list create/edit/delete for the Reminders filters that RemCTL has verified to materialize correctly.
 - Templates: whole-list template create/apply/delete. Existing public template links can be read, but RemCTL does not create iCloud sharing links.
@@ -260,6 +263,7 @@ Private mode covers the parts of Reminders that EventKit does not expose:
 A few rules keep this safe and predictable:
 
 - `edit -l/--list` and `edit --list-id` use EventKit first. If a pure move is rejected by a list/container boundary, RemCTL uses a verified ReminderKit clone-delete fallback and returns `oldId` plus the new `id`; move first, then apply unrelated edits to the returned ID.
+- `reminder-move` changes display order without changing the reminder's base list. Use `--smart-list` or `--smart-list-id` when ordering a custom smart list; relative moves must stay in the same smart-list section.
 - Shared-list assignment uses `--private --assign USER`; `USER` may be a unique name, email/phone address, numeric sharee ID, object UUID, or `me`. Use `remctl sharees LIST --json` before assigning when scripting.
 - Location alarms still require the `--private` guardrail, but RemCTL saves them through `remctl-bridge` because EventKit structured-location alarms persist correctly on current macOS.
 - `--private --url` and rich subtask URLs must be public `http` or `https` hosts. Loopback, `.local`, private, link-local, multicast, reserved, and unresolved hosts are rejected before writing.

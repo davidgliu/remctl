@@ -239,6 +239,24 @@ remctl delete 23880 --force
 
 For parent reminders with subtasks, Reminders rejects an in-place EventKit list move. Some ordinary reminders can also hit EventKit list/container boundaries when moving between private and shared CalDAV containers. For a pure list move, RemCTL handles those shapes by cloning the reminder into the destination list with ReminderKit, verifying the cloned reminder and subtask count, then deleting the original. JSON output includes `method: "clone-delete"`, `oldId`, the new `id`, and `subtasksMoved` (`0` for ordinary reminders). Move first, then apply unrelated title/notes/due/private edits to the returned ID.
 
+## Reminder Ordering
+
+`reminder-move` changes a reminder's display position without moving it to another base list. It is an unsupported ReminderKit write and always requires `--private`.
+
+```bash
+remctl reminder-move 23880 --before 23881 --private
+remctl reminder-move 23880 --after 23881 --private
+remctl reminder-move 23880 --first --private
+remctl reminder-move 23880 --last --private --json
+
+remctl reminder-move 23880 --before 23881 --smart-list "Focus" --private
+remctl reminder-move 23880 --last --smart-list-id 170 --private --json
+```
+
+Without a smart-list target, the reminder and a `--before`/`--after` anchor must belong to the same ordinary list. With `--smart-list` or `--smart-list-id`, RemCTL reorders a custom smart list and can position reminders whose base lists differ. If the smart list has sections, the reminder and anchor must be in the same section; `--first` and `--last` mean first or last in the reminder's current section.
+
+Smart-list ordering requires an existing manual-order record, and relative anchors must already have persisted positions. RemCTL fails before writing when it cannot establish those boundaries. Successful commands re-read the local store and report `verified: true`; the helper writes through ReminderKit and never edits SQLite directly.
+
 ## Lists
 
 ```bash

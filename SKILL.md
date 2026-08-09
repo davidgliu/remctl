@@ -15,7 +15,7 @@ The installed command can be invoked as `remctl`, `rctl`, or `reminders`; all th
 - Prefer JSON for automation and verification: `remctl today --json`, `remctl show Work --json`, `remctl info <id> --json`.
 - Never write directly to the Reminders SQLite database.
 - Do not use `--via-eventkit` by default. It is a limited read-only fallback for `show`, `search`, `today`, and `upcoming` when Full Disk Access blocks a basic read and the task can tolerate missing Reminders metadata.
-- For private reminder metadata, use regular `add` or `edit` with `--private`; use `edit --private --set-tags`, `--clear-tags`, or `--remove-tag` for synced tag replacement/removal; use `section-create`, `section-rename`, or `section-delete` with `--private` for section management; for private list appearance, Groceries mode, or regular/smart-list pin state, use `list-create --private`, `list-edit --private`, `list-pin --private`, or `list-unpin --private`; for list groups, use `group-create`, `group-edit`, `list-create --private --group`, or `group-delete` with `--private`; for custom smart lists, use `smart-list-create`, `smart-list-edit`, or `smart-list-delete` with `--private`; for Reminders templates, use `template-create`, `template-apply`, or `template-delete` with `--private`. Do not use raw database mutation.
+- For private reminder metadata, use regular `add` or `edit` with `--private`; use `reminder-move --private` for reminder display ordering; use `edit --private --set-tags`, `--clear-tags`, or `--remove-tag` for synced tag replacement/removal; use `section-create`, `section-rename`, or `section-delete` with `--private` for section management; for private list appearance, Groceries mode, or regular/smart-list pin state, use `list-create --private`, `list-edit --private`, `list-pin --private`, or `list-unpin --private`; for list groups, use `group-create`, `group-edit`, `list-create --private --group`, or `group-delete` with `--private`; for custom smart lists, use `smart-list-create`, `smart-list-edit`, or `smart-list-delete` with `--private`; for Reminders templates, use `template-create`, `template-apply`, or `template-delete` with `--private`. Do not use raw database mutation.
 
 ## Agent Routing
 
@@ -27,6 +27,7 @@ Start by deciding the write path. Public EventKit writes are stable and do not n
 | Create/edit ordinary reminder fields | `add`, `edit`, `done`, `undone`, `delete` | No | `info <id> --json` or `show <list> --json` |
 | Due date, priority, notes, recurrence, EventKit alarm | `add` or `edit` with `-d`, `-p`, `-n`, `--recurrence`, `--alarm` | No | `info <id> --json`; recurrence appears as `recurrence` |
 | Move an existing reminder to another list | `edit <id> -l LIST` or `edit <id> --list-id ID` | No | Use the returned `id`; clone-delete fallback may return a new ID plus `oldId` |
+| Reorder a reminder without changing its base list | `reminder-move <id> --before/--after <id>`; add `--smart-list NAME` for custom smart-list order | Yes | Command verifies identifier order and returns `verified: true` |
 | Set or clear the real flagged state | `flag <id>`, `unflag <id>`, `add -f/--flag` (AppleScript; needs Automation access) | No | `info <id> --json` under `flagged` |
 | Synced rich URL, real tags, section assignment, shared-list assignment, subtask, image, real flag, urgent, Early Reminder, location alarm | `add --private` or `edit --private` | Yes | `info <id> --json`; UI/device check when sync matters |
 | Replace/remove synced reminder tags | `edit --private --set-tags`, `edit --private --clear-tags`, `edit --private --remove-tag` | Yes | `info <id> --json` |
@@ -92,6 +93,8 @@ remctl list-symbols --json
 remctl edit 23880 -d clear --json
 remctl edit 23880 -l Work --json
 remctl edit 23880 --list-id 156 --json
+remctl reminder-move 23880 --before 23881 --private --json
+remctl reminder-move 23880 --last --smart-list "Focus" --private --json
 remctl edit 23880 --recurrence monthly --json
 remctl done 23880 --json
 remctl done 23880 --date 2026-05-27 --json
