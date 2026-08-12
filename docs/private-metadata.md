@@ -30,7 +30,7 @@ Verified on macOS/iCloud sync:
 - Early Reminders: `add "Leave early" -d "today 14:00" --private --early-reminder 15m`, `edit ID --private --early-reminder 1h`, or `edit ID --private --early-reminder clear`
 - location alarms: `edit ID --private --location-title "Apple Park" --latitude 37.3349 --longitude -122.0090` (guarded by `--private`, saved through `remctl-bridge`)
 - list appearance metadata: `list-create "Projects" --private --symbol education3`, `list-edit Projects --private --color '#FF8D28' --emoji 📌`
-- list and smart-list pin state: `list-pin "Project X" --private`, `list-pin "Flagged" --private`, `list-unpin --smart-list-id 4 --private`
+- regular-list and custom-smart-list pin state: `list-pin "Project X" --private`, `list-pin "My Smart List" --private`, `list-unpin --smart-list-id 4 --private`; built-in smart-list pinning is host-capability-dependent
 - list groups: `group-create "Writing" --private --add-list Editorial`, `list-create "Ideas" --private --group Writing`, `group-edit "Writing" --private --add-list Ideas --remove-list Socials`, `group-edit "Writing" --private --move-list Ideas --last`, and `group-delete "Writing" --private --force`
 - custom smart lists with verified materializing Reminders filters: `smart-list-create "Flagged Review" --private --flagged`, `smart-list-create "Priority or Today" --private --match any --priority high,medium --date today`, `smart-list-create "Projects Today" --private --include-list Projects --date today --date-today-include-past-due`, and exact custom smart-list cleanup via `smart-list-delete "Flagged Review" --private --force`
 - Reminders templates: `template-create "Packing Template" --from-list Packing --private`, `template-apply "Packing Template" --private`, and exact cleanup via `template-delete "Packing Template" --private --force`
@@ -155,7 +155,7 @@ Important limits:
 - `--emoji` writes a Reminders emoji badge for standard emoji such as `🥶` or `📌`.
 - `list-edit` resolves by exact list name, then safe normalized matching; if a duplicate match is ambiguous, use `--list-id`.
 - `list-pin` and `list-unpin` can target regular lists or smart lists by name. If a name matches both, use `--list-id` or `--smart-list-id`.
-- Verify regular list pinning with `lists --json` and smart-list pinning with `smart-lists --json`. Smart-list rows can leave `ZISPINNEDBYCURRENTUSER` empty while updating `ZPINNEDDATE`; RemCTL reports `pinned: true` when the smart-list pin date is positive.
+- Verify regular list pinning with `lists --json` and smart-list pinning with `smart-lists --json`. Successful smart-list writes can leave `ZISPINNEDBYCURRENTUSER` empty while updating `ZPINNEDDATE`; RemCTL reports `pinned: true` when the smart-list pin date is positive. Built-in smart-list pinning fails before saving on hosts without the generic ReminderKit fetch.
 
 ## List Group Examples
 
@@ -199,7 +199,15 @@ Groceries writes use `REMListChangeItem.groceryContextChangeItem`: `list-create 
 
 `add --private --grocery` and `edit --private --grocery` verify automatic grocery sorting for the target reminder IDs. The target list must already be a detected Groceries list, and RemCTL fails before writing if it is not. RemCTL first polls the local section membership table because Reminders often sorts new items immediately; if the item is still unsectioned, RemCTL falls back to ReminderKit's explicit grocery categorizer. The JSON result includes `verifiedSections` and `source: "reminders_auto"` when the automatic sorter already handled it.
 
+The private grocery fallback supports both known selectors. Tahoe retains `categorizeGroceryItemsWithReminderIDs:` on the grocery-context change with UUID values. Golden Gate calls `autoCategorizeRemindersWithReminderIDs:` on the list change with `REMObjectID` values. A selector-name-only Golden Gate branch that reused Tahoe's receiver and UUID array returned a ReminderKit helper-communication error; the full Golden Gate branch persisted Produce section membership. A Tahoe experiment that substituted `REMObjectID` values returned success but tombstoned its disposable list, reminder, and section, so RemCTL deliberately keeps the existing Tahoe argument contract. RemCTL checks the live receivers before dispatch and catches Objective-C exceptions. The normal Reminders automatic-categorization wait remains first, so this private save runs only when the item is still unsectioned.
+
 ## Smart List Examples
+
+### Pinning compatibility
+
+RemCTL identifies the target as built-in or custom before it calls `remctl-private`. Custom smart lists always use `fetchCustomSmartListWithObjectID:error:`. Built-in smart lists use `fetchSmartListWithObjectID:error:` only when the host store exposes it. The tested Tahoe 26.2 and Golden Gate 27.0 builds both lack that generic selector, so built-in pin/unpin returns `Built-in smart-list pinning is unsupported on this macOS version` before RemCTL creates a save request. Other hosts that still expose the selector keep the existing behavior.
+
+This split matters because a built-in object ID is not a custom smart-list object ID. Passing it to the custom fetch returns ReminderKit error `-3000`; it is not a safe fallback. Read-only inspection through `smart-lists` is unaffected.
 
 ```bash
 remctl smart-lists

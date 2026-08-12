@@ -151,6 +151,7 @@
 - (id)sectionsContextChangeItem;
 - (id)appearanceContext;
 - (id)groceryContextChangeItem;
+- (void)autoCategorizeRemindersWithReminderIDs:(NSArray *)reminderIDs;
 - (void)setColor:(id)color;
 - (void)setIsPinned:(BOOL)pinned;
 - (void)setName:(NSString *)name;
@@ -182,7 +183,7 @@
 @end
 
 @interface REMColor : NSObject
-- (instancetype)initWithRed:(double)red green:(double)green blue:(double)blue alpha:(double)alpha colorSpace:(NSInteger)colorSpace daSymbolicColorName:(NSString *)daSymbolicColorName daHexString:(NSString *)daHexString ckSymbolicColorName:(NSString *)ckSymbolicColorName;
+- (instancetype)initWithRed:(double)red green:(double)green blue:(double)blue alpha:(double)alpha colorSpace:(NSUInteger)colorSpace daSymbolicColorName:(NSString *)daSymbolicColorName daHexString:(NSString *)daHexString ckSymbolicColorName:(NSString *)ckSymbolicColorName;
 @end
 
 @interface REMListSectionChangeItem : NSObject
@@ -238,6 +239,25 @@ static void fail(NSString *message) {
 static void failException(NSString *prefix, NSException *exception) {
     NSString *reason = exception.reason ?: exception.name ?: @"Unknown Objective-C exception";
     fail([NSString stringWithFormat:@"%@: %@", prefix ?: @"Objective-C exception", reason]);
+}
+
+static NSDictionary *selectorCapability(id target, SEL selector) {
+    BOOL responds = target && [target respondsToSelector:selector];
+    NSMutableDictionary *result = [NSMutableDictionary dictionaryWithDictionary:@{
+        @"selector": NSStringFromSelector(selector),
+        @"available": @(responds),
+    }];
+    if (responds) {
+        NSMethodSignature *signature = [target methodSignatureForSelector:selector];
+        if (signature) {
+            NSMutableString *encoding = [NSMutableString stringWithUTF8String:signature.methodReturnType];
+            for (NSUInteger index = 0; index < signature.numberOfArguments; index++) {
+                [encoding appendFormat:@"%s", [signature getArgumentTypeAtIndex:index]];
+            }
+            result[@"encoding"] = encoding;
+        }
+    }
+    return result;
 }
 
 static BOOL isWritableCloudKitAccount(id account) {
@@ -619,101 +639,7 @@ static NSArray<NSDictionary *> *subtaskSpecArray(NSDictionary *cmd) {
     return result;
 }
 
-static void addURLsToChange(REMReminderChangeItem *change, NSArray<NSString *> *urls, NSInteger *addedURLs) {
-    if (urls.count == 0) return;
-    id attachmentContext = [change attachmentContext];
-    for (NSString *urlString in urls) {
-        if (!looksLikeWebURL(urlString)) {
-            fail([NSString stringWithFormat:@"Invalid web URL: %@", urlString]);
-        }
-        [attachmentContext addURLAttachmentWithURL:[NSURL URLWithString:urlString]];
-        if (addedURLs) *addedURLs += 1;
-    }
-}
-
-static void addTagsToChange(REMReminderChangeItem *change, NSArray<NSString *> *tags, NSInteger *addedTags) {
-    if (tags.count == 0) return;
-    id hashtagContext = [change hashtagContext];
-    for (NSString *tag in tags) {
-        [hashtagContext addHashtagWithType:1 name:tag];
-        if (addedTags) *addedTags += 1;
-    }
-}
-
-static void addImagesToChange(REMReminderChangeItem *change, NSArray<NSString *> *images, NSDictionary *cmd, NSInteger *addedImages) {
-    if (images.count == 0) return;
-    id attachmentContext = [change attachmentContext];
-    for (NSString *path in images) {
-        if (![[NSFileManager defaultManager] isReadableFileAtPath:path]) {
-            fail([NSString stringWithFormat:@"Image is not readable: %@", path]);
-        }
-        NSURL *fileURL = [NSURL fileURLWithPath:path];
-        NSImage *image = [[NSImage alloc] initWithContentsOfURL:fileURL];
-        if (!image || image.size.width <= 0 || image.size.height <= 0) {
-            fail([NSString stringWithFormat:@"Image attachment must be a readable image file: %@", path]);
-        }
-        NSUInteger width = [cmd[@"width"] unsignedIntegerValue];
-        NSUInteger height = [cmd[@"height"] unsignedIntegerValue];
-        if (width == 0 || height == 0) {
-            width = (NSUInteger)lrint(image.size.width);
-            height = (NSUInteger)lrint(image.size.height);
-        }
-        NSError *error = nil;
-        id attachment = [attachmentContext addImageAttachmentWithURL:fileURL width:width height:height error:&error];
-        if (!attachment) fail(error.localizedDescription ?: [NSString stringWithFormat:@"Image attachment failed: %@", path]);
-        if (addedImages) *addedImages += 1;
-    }
-}
-
-static void addLocationToChange(REMReminderChangeItem *change, NSDictionary *cmd) {
-    id latValue = cmd[@"latitude"];
-    id lonValue = cmd[@"longitude"];
-    id titleValue = cmd[@"locationTitle"] ?: cmd[@"location_title"];
-    if ((!latValue || latValue == [NSNull null]) && (!lonValue || lonValue == [NSNull null]) && (!titleValue || titleValue == [NSNull null])) {
-        return;
-    }
-    if (!latValue || latValue == [NSNull null] || !lonValue || lonValue == [NSNull null]) {
-        fail(@"Location alarms require latitude and longitude");
-    }
-    NSString *title = [titleValue isKindOfClass:[NSString class]] && [titleValue length] ? titleValue : @"Location";
-    double lat = [latValue doubleValue];
-    double lon = [lonValue doubleValue];
-    double radius = [cmd[@"radius"] doubleValue];
-    NSInteger proximity = [cmd[@"proximity"] integerValue];
-    if (radius <= 0.0) radius = 100.0;
-    if (proximity != 1 && proximity != 2) proximity = 1;
-    if (lat < -90.0 || lat > 90.0) fail(@"latitude must be between -90 and 90");
-    if (lon < -180.0 || lon > 180.0) fail(@"longitude must be between -180 and 180");
-    REMStructuredLocation *location = [[REMStructuredLocation alloc]
-        initWithTitle:title
-        locationUID:[[NSUUID UUID] UUIDString]
-        latitude:lat
-        longitude:lon
-        radius:radius
-        address:cmd[@"address"]
-        routing:nil
-        referenceFrameString:nil
-        contactLabel:nil
-        mapKitHandle:nil];
-    id trigger = [[REMAlarmLocationTrigger alloc] initWithStructuredLocation:location proximity:proximity];
-    id alarm = [[REMAlarm alloc] initWithTrigger:trigger];
-    [change addAlarm:alarm];
-}
-
-static void applyPrivateMetadataToChange(REMReminderChangeItem *change, NSDictionary *cmd, NSInteger *addedURLs, NSInteger *addedTags, NSInteger *addedImages) {
-    addURLsToChange(change, stringArray(cmd[@"urls"], @"urls"), addedURLs);
-    addTagsToChange(change, stringArray(cmd[@"tags"], @"tags"), addedTags);
-    addImagesToChange(change, stringArray(cmd[@"images"], @"images"), cmd, addedImages);
-    if (cmd[@"flagged"] && cmd[@"flagged"] != [NSNull null]) {
-        [[change flaggedContext] setFlagged:[cmd[@"flagged"] boolValue] ? 1 : 0];
-    }
-    if (cmd[@"urgent"] && cmd[@"urgent"] != [NSNull null]) {
-        [[change urgentAlarmContext] setIsUrgentStateEnabledForCurrentUser:[cmd[@"urgent"] boolValue]];
-    }
-    addLocationToChange(change, cmd);
-}
-
-int main(int argc, const char * argv[]) {
+int main(void) {
     @autoreleasepool {
         NSData *input = [[NSFileHandle fileHandleWithStandardInput] readDataToEndOfFile];
         if (input.length == 0) {
@@ -733,6 +659,47 @@ int main(int argc, const char * argv[]) {
         NSString *action = cmd[@"action"];
         if ([action isEqualToString:@"protocol_version"]) {
             output(@{@"status": @"ok", @"protocolVersion": @(REMCTL_PRIVATE_PROTOCOL_VERSION)});
+            return 0;
+        }
+        if ([action isEqualToString:@"capabilities"]) {
+            REMStore *store = [REMStore new];
+            NSMutableDictionary *details = [NSMutableDictionary dictionaryWithDictionary:@{
+                @"status": @"ok",
+                @"action": action,
+                @"protocolVersion": @(REMCTL_PRIVATE_PROTOCOL_VERSION),
+                @"operatingSystemVersion": [[NSProcessInfo processInfo] operatingSystemVersionString],
+                @"saveCalled": @NO,
+                @"store": @{
+                    @"fetchSmartListWithObjectID:error:":
+                        selectorCapability(store, @selector(fetchSmartListWithObjectID:error:)),
+                    @"fetchCustomSmartListWithObjectID:error:":
+                        selectorCapability(store, @selector(fetchCustomSmartListWithObjectID:error:)),
+                },
+            }];
+            NSError *capabilityError = nil;
+            REMAccount *account = fetchWritableCloudKitAccount(store, &capabilityError);
+            if (account) {
+                REMSaveRequest *unsavedRequest = [[REMSaveRequest alloc] initWithStore:store];
+                id accountChange = [unsavedRequest updateAccount:account];
+                id listChange = accountChange
+                    ? [unsavedRequest addListWithName:@"RemCTL Capability Probe" toAccountChangeItem:accountChange listObjectID:nil]
+                    : nil;
+                id groceryContext = listChange && [listChange respondsToSelector:@selector(groceryContextChangeItem)]
+                    ? [listChange groceryContextChangeItem]
+                    : nil;
+                details[@"grocery"] = @{
+                    @"categorizeGroceryItemsWithReminderIDs:":
+                        selectorCapability(groceryContext, @selector(categorizeGroceryItemsWithReminderIDs:)),
+                    @"autoCategorizeRemindersWithReminderIDs:":
+                        selectorCapability(listChange, @selector(autoCategorizeRemindersWithReminderIDs:)),
+                };
+            } else {
+                details[@"grocery"] = @{
+                    @"available": @NO,
+                    @"message": capabilityError.localizedDescription ?: @"No writable iCloud Reminders account was available for an unsaved probe",
+                };
+            }
+            output(details);
             return 0;
         }
         NSSet<NSString *> *allowedActions = [NSSet setWithArray:@[
@@ -1475,11 +1442,28 @@ int main(int argc, const char * argv[]) {
             error = nil;
             REMStore *store = [REMStore new];
             id smartList = nil;
-            if ([store respondsToSelector:@selector(fetchSmartListWithObjectID:error:)]) {
-                smartList = [store fetchSmartListWithObjectID:objectID error:&error];
-            }
-            if (!smartList) {
-                smartList = [store fetchCustomSmartListWithObjectID:objectID error:&error];
+            id isCustomValue = cmd[@"isCustom"];
+            if ([isCustomValue isKindOfClass:[NSNumber class]]) {
+                if ([isCustomValue boolValue]) {
+                    if (![store respondsToSelector:@selector(fetchCustomSmartListWithObjectID:error:)]) {
+                        fail(@"Custom smart-list pinning is unsupported on this macOS version");
+                    }
+                    smartList = [store fetchCustomSmartListWithObjectID:objectID error:&error];
+                } else {
+                    if (![store respondsToSelector:@selector(fetchSmartListWithObjectID:error:)]) {
+                        fail(@"Built-in smart-list pinning is unsupported on this macOS version");
+                    }
+                    smartList = [store fetchSmartListWithObjectID:objectID error:&error];
+                }
+            } else {
+                // Protocol-1 callers shipped before the smart-list kind hint. Keep
+                // their legacy fetch order so an older CLI/helper pair still works.
+                if ([store respondsToSelector:@selector(fetchSmartListWithObjectID:error:)]) {
+                    smartList = [store fetchSmartListWithObjectID:objectID error:&error];
+                }
+                if (!smartList && [store respondsToSelector:@selector(fetchCustomSmartListWithObjectID:error:)]) {
+                    smartList = [store fetchCustomSmartListWithObjectID:objectID error:&error];
+                }
             }
             if (!smartList) {
                 fail(error.localizedDescription ?: @"Smart list not found");
@@ -1534,10 +1518,11 @@ int main(int argc, const char * argv[]) {
                 fail(@"ReminderKit list change item does not support grocery categorization");
             }
             id groceryContext = [change groceryContextChangeItem];
-            if (!groceryContext || ![groceryContext respondsToSelector:@selector(categorizeGroceryItemsWithReminderIDs:)]) {
+            if (!groceryContext) {
                 fail(@"ReminderKit grocery context does not support item categorization");
             }
             NSMutableArray *uuids = [NSMutableArray array];
+            NSMutableArray *reminderObjectIDs = [NSMutableArray array];
             for (NSString *reminderID in reminderIDs) {
                 NSURL *reminderObjectURL = reminderURL(reminderID);
                 id reminderObjectID = [REMObjectID objectIDWithURL:reminderObjectURL];
@@ -1545,9 +1530,22 @@ int main(int argc, const char * argv[]) {
                     fail([NSString stringWithFormat:@"Could not build ReminderKit reminder object ID: %@", reminderID]);
                 }
                 [uuids addObject:[reminderObjectID uuid]];
+                [reminderObjectIDs addObject:reminderObjectID];
             }
+            NSString *categorizationSelector = nil;
             @try {
-                [(REMListGroceryContextChangeItem *)groceryContext categorizeGroceryItemsWithReminderIDs:uuids];
+                if ([groceryContext respondsToSelector:@selector(categorizeGroceryItemsWithReminderIDs:)]) {
+                    // Preserve Tahoe's shipped UUID contract. The REMObjectID alternative
+                    // tombstones the disposable list, reminder, and section on macOS 26.2.
+                    [(REMListGroceryContextChangeItem *)groceryContext categorizeGroceryItemsWithReminderIDs:uuids];
+                    categorizationSelector = @"categorizeGroceryItemsWithReminderIDs:";
+                } else if ([change respondsToSelector:@selector(autoCategorizeRemindersWithReminderIDs:)]) {
+                    // Golden Gate moved this operation from the grocery context to the list change.
+                    [(REMListChangeItem *)change autoCategorizeRemindersWithReminderIDs:reminderObjectIDs];
+                    categorizationSelector = @"autoCategorizeRemindersWithReminderIDs:";
+                } else {
+                    fail(@"ReminderKit grocery context does not support item categorization on this macOS version");
+                }
             } @catch (NSException *exception) {
                 fail([NSString stringWithFormat:@"ReminderKit grocery categorization failed: %@", exception.reason ?: exception.name]);
             }
@@ -1560,6 +1558,7 @@ int main(int argc, const char * argv[]) {
                 @"action": action,
                 @"listId": listID,
                 @"remindersCategorized": @(reminderIDs.count),
+                @"selector": categorizationSelector,
             });
             return 0;
         }

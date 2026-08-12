@@ -253,7 +253,7 @@ remctl template-delete "Packing Template" --private --force
 Private mode covers the parts of Reminders that EventKit does not expose:
 
 - Reminder metadata: synced web rich links, synced tags, sections, shared-list assignments, rich subtasks, image attachments, real flag state, urgent state, Early Reminders, and location alarms.
-- List metadata: exact `#RRGGBB` colors, official list symbols, emoji badges, Groceries list conversion/locale metadata, regular or smart-list pin state, and list group create/edit/delete.
+- List metadata: exact `#RRGGBB` colors, official list symbols, emoji badges, Groceries list conversion/locale metadata, regular-list and custom-smart-list pin state, and list group create/edit/delete. Built-in smart-list pinning is available only when the host macOS exposes the required generic ReminderKit fetch; unsupported systems fail before a save.
 - Smart lists: custom smart-list create/edit/delete for the Reminders filters that RemCTL has verified to materialize correctly.
 - Templates: whole-list template create/apply/delete. Existing public template links can be read, but RemCTL does not create iCloud sharing links.
 
@@ -388,7 +388,7 @@ For fast agent writes, call `remctl add ... --json`, use the returned `numericId
 
 Use JSON for automation when exact raw text matters. Human output is terminal-safe and strips control characters; JSON preserves the underlying Reminders values.
 
-For smart-list automation, use `smart-list-create`, `smart-list-edit`, and `smart-list-delete` with `--private`, prefer `--smart-list-id` when editing or deleting an existing custom smart list, and verify with `remctl smart-lists --json`. `smart-lists --json` also reports smart-list pin state; on macOS 26, smart-list pinning is verified from `pinnedDate` because the regular-list boolean can stay empty. Reminders.app currently materializes only one included-list filter at a time; RemCTL rejects repeated included lists and list exclusions before writing. The smart-list command surface and examples are documented in [docs/commands.md#smart-lists](docs/commands.md#smart-lists); the private ReminderKit behavior and filter storage details are in [docs/private-metadata.md#smart-list-examples](docs/private-metadata.md#smart-list-examples).
+For smart-list automation, use `smart-list-create`, `smart-list-edit`, and `smart-list-delete` with `--private`, prefer `--smart-list-id` when editing or deleting an existing custom smart list, and verify with `remctl smart-lists --json`. `smart-lists --json` also reports smart-list pin state; on macOS 26, a successful smart-list pin can be verified from `pinnedDate` because the regular-list boolean can stay empty. Custom smart-list pinning uses the custom-list fetch on both Tahoe and Golden Gate. Built-in smart-list pinning is capability-gated: hosts that expose the generic fetch keep the existing behavior, while tested Tahoe 26.2 and Golden Gate 27.0 builds fail with a precise unsupported message before creating a save request. Reminders.app currently materializes only one included-list filter at a time; RemCTL rejects repeated included lists and list exclusions before writing. The smart-list command surface and examples are documented in [docs/commands.md#smart-lists](docs/commands.md#smart-lists); the private ReminderKit behavior and filter storage details are in [docs/private-metadata.md#smart-list-examples](docs/private-metadata.md#smart-list-examples).
 
 For template automation, use `templates --json` and `template-info` to inspect saved templates. Use `template-create`, `template-apply`, and `template-delete` with `--private`; verify template rows with `templates --json` or `template-info`, and verify applied lists with `show <list> --json`. Template writes are list-level only: do not assume support for appending individual reminders to a template or excluding subtasks/due dates. Existing iCloud template links are read-only metadata.
 
@@ -416,7 +416,7 @@ remctl --version
 remctl doctor
 ```
 
-`./install.sh` recompiles the helpers when `swiftc`/`clang` are available. RemCTL checks a `remctl-private` protocol version on first `--private` use; an outdated helper refuses to run with `remctl-private is outdated (protocol N < required M); re-run install.sh to rebuild.`, so rebuild after updating. `remctl doctor` reports the helper protocol version under `private_helper`.
+`./install.sh` recompiles the helpers when `swiftc`/`clang` are available. RemCTL checks a `remctl-private` protocol version on first `--private` use; an outdated helper refuses to run with `remctl-private is outdated (protocol N < required M); re-run install.sh to rebuild.`, so rebuild after updating. `remctl doctor` reports the helper protocol version under `private_helper`. Maintainers can send `{"action":"capabilities"}` to `remctl-private` for a read-only selector report; it creates only unsaved change objects and returns `saveCalled: false`.
 
 ## Docs
 

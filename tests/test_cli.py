@@ -2489,7 +2489,12 @@ class CliTests(unittest.TestCase):
                 self.remctl.cmd_list_pin(pin_args)
             self.assertEqual(
                 pin_call.call_args.args[0],
-                {"action": "set_smart_list_pinned", "smartListId": "BUILTIN-1", "pinned": True},
+                {
+                    "action": "set_smart_list_pinned",
+                    "smartListId": "BUILTIN-1",
+                    "isCustom": False,
+                    "pinned": True,
+                },
             )
             self.assertEqual(json.loads(stdout.getvalue())["kind"], "smart-list")
 
@@ -2502,7 +2507,12 @@ class CliTests(unittest.TestCase):
                 self.remctl.cmd_list_unpin(unpin_args)
             self.assertEqual(
                 unpin_call.call_args.args[0],
-                {"action": "set_smart_list_pinned", "smartListId": "CUSTOM-1", "pinned": False},
+                {
+                    "action": "set_smart_list_pinned",
+                    "smartListId": "CUSTOM-1",
+                    "isCustom": True,
+                    "pinned": False,
+                },
             )
         finally:
             db.close()

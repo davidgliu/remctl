@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- **Private ReminderKit compatibility.** Grocery fallback categorization preserves Tahoe's legacy grocery-context/UUID path and adds Golden Gate's list-change/`REMObjectID` contract. Built-in smart-list pinning no longer sends built-in IDs through the custom-list fetch; it keeps the generic path when available and fails before saving on hosts that removed it. Custom smart-list pinning is unchanged.
+- **Private API audit.** `remctl-private` now exposes a read-only `capabilities` action with watched selector availability, normalized encodings, the host OS, and `saveCalled: false`. Corrected the `REMColor.colorSpace` declaration to `NSUInteger` and removed dead helper code.
+
 ## 1.6.1 — 2026-07-30
 
 Two things: flagging is now honest end-to-end (it writes the real flag or fails — no more reporting success while writing nothing), and the recurrence grammar learned intervals and Nth-weekday rules.

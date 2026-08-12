@@ -4826,13 +4826,18 @@ def apply_private_group_delete(db, group_ref, a):
     sys.exit(1)
 
 
-def apply_private_smart_list_pinned(db, smart_list_pk, a, pinned):
+def apply_private_smart_list_pinned(db, smart_list_ref, a, pinned):
     require_private_metadata(a)
-    ckid = q_smart_list_ckid(db, smart_list_pk)
+    ckid = smart_list_ref.get("objectUUID") or q_smart_list_ckid(db, smart_list_ref["id"])
     if not ckid:
         print("Error: target smart list has no stable CloudKit identifier.", file=sys.stderr)
         sys.exit(1)
-    result = private_call({"action": "set_smart_list_pinned", "smartListId": ckid, "pinned": bool(pinned)})
+    result = private_call({
+        "action": "set_smart_list_pinned",
+        "smartListId": ckid,
+        "isCustom": smart_list_ref.get("kind") == "custom",
+        "pinned": bool(pinned),
+    })
     if result and result.get("status") == "updated":
         return result
     message = result.get("message") if isinstance(result, dict) else "private helper failed"
@@ -9630,7 +9635,7 @@ def _cmd_list_pin_state(a, pinned):
     if smart_list_id is not None:
         target_kind = "smart-list"
         target_ref = resolve_smart_list_or_die(db, smart_list_id=smart_list_id)
-        result = apply_private_smart_list_pinned(db, target_ref["id"], a, pinned)
+        result = apply_private_smart_list_pinned(db, target_ref, a, pinned)
     elif getattr(a, "list_id", None) is not None:
         target_kind = "list"
         target_ref = resolve_list_or_die(db, list_id=a.list_id)
@@ -9659,7 +9664,7 @@ def _cmd_list_pin_state(a, pinned):
         elif smart_ok:
             target_kind = "smart-list"
             target_ref = smart_ref
-            result = apply_private_smart_list_pinned(db, target_ref["id"], a, pinned)
+            result = apply_private_smart_list_pinned(db, target_ref, a, pinned)
         else:
             print(f"Error: list or smart list not found: {name}", file=sys.stderr)
             sys.exit(1)

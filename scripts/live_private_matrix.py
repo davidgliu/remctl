@@ -47,6 +47,7 @@ class LiveMatrix:
         self.created_smart_lists: set[str] = set()
         self.created_templates: set[str] = set()
         self.created_reminders: set[int] = set()
+        self.private_capabilities: dict = {}
 
     def close(self):
         self.tmpdir.cleanup()
@@ -95,6 +96,13 @@ class LiveMatrix:
             time.sleep(delay)
         return last
 
+    def retry_absent(self, fn, *, attempts: int = 30, delay: float = 0.25) -> bool:
+        for _ in range(attempts):
+            if not fn():
+                return True
+            time.sleep(delay)
+        return False
+
     def lists(self) -> list[dict]:
         return self.json_command(["lists", "--json"])
 
@@ -118,6 +126,40 @@ class LiveMatrix:
 
     def info(self, reminder_id: int) -> dict:
         return self.json_command(["info", str(reminder_id), "--json"])
+
+    def private_helper_path(self) -> Path:
+        override = os.environ.get("REMCTL_PRIVATE_PATH")
+        if override:
+            return Path(override).expanduser().resolve()
+        sibling = Path(self.remctl).expanduser().resolve().with_name("remctl-private")
+        if sibling.is_file():
+            return sibling
+        return Path.home() / "bin" / "remctl-private"
+
+    def private_helper_json(self, payload: dict, *, expect: int = 0, retry_transient: bool = False) -> dict:
+        helper = self.private_helper_path()
+        attempts = 3 if retry_transient else 1
+        for attempt in range(attempts):
+            proc = subprocess.run(
+                [str(helper)],
+                input=json.dumps(payload, separators=(",", ":")),
+                text=True,
+                capture_output=True,
+                timeout=60,
+            )
+            transient = "communicate with a helper application" in (proc.stdout + proc.stderr)
+            if not transient or attempt == attempts - 1:
+                break
+            time.sleep(0.5)
+        if proc.returncode != expect:
+            raise AssertionError(
+                f"{helper} exited {proc.returncode}, expected {expect}\n"
+                f"stdout:\n{proc.stdout}\nstderr:\n{proc.stderr}"
+            )
+        try:
+            return json.loads(proc.stdout)
+        except json.JSONDecodeError as exc:
+            raise AssertionError(f"Expected JSON from {helper}\n{proc.stdout}") from exc
 
     def create_list(self, name: str, *args: str) -> dict:
         self.json_command(["list-create", name, *args, "--json"])
@@ -234,6 +276,52 @@ class LiveMatrix:
         shown = self.retry(lambda: [item for item in self.show_list(grocery) if item.get("title") == f"{self.prefix} Milk"])
         self.assert_true(bool(shown), "grocery reminder did not appear in list")
         self.record("add --private --grocery", "passed", str(milk.get("numericId")))
+
+        direct_title = f"{self.prefix} Bananas Direct"
+        direct = self.create_reminder(direct_title, "-l", grocery)
+        direct_id = int(direct["numericId"])
+        direct_info = self.retry(lambda: self.info(direct_id) if self.info(direct_id).get("deepLink") else None)
+        self.assert_true(bool(direct_info), "direct grocery test reminder has no stable deep link")
+        direct_object_id = direct_info["deepLink"].rstrip("/").rsplit("/", 1)[-1]
+        self.assert_true(bool(direct_object_id), "direct grocery test reminder has no object UUID")
+        grocery_caps = self.private_capabilities.get("grocery", {})
+        legacy_available = grocery_caps.get("categorizeGroceryItemsWithReminderIDs:", {}).get("available") is True
+        current_available = grocery_caps.get("autoCategorizeRemindersWithReminderIDs:", {}).get("available") is True
+        request = {
+            "action": "categorize_grocery_items",
+            "listId": grocery_row["objectUUID"],
+            "reminderIds": [direct_object_id],
+        }
+        if legacy_available or current_available:
+            expected_selector = (
+                "categorizeGroceryItemsWithReminderIDs:"
+                if legacy_available
+                else "autoCategorizeRemindersWithReminderIDs:"
+            )
+            categorized = self.private_helper_json(request, retry_transient=True)
+            self.assert_true(categorized.get("status") == "updated", "grocery selector call did not update")
+            self.assert_true(
+                categorized.get("selector") == expected_selector,
+                "grocery selector dispatch did not match capabilities",
+            )
+            categorized_row = self.retry(
+                lambda: next(
+                    (
+                        item
+                        for item in self.show_list(grocery)
+                        if item.get("title") == direct_title and item.get("section")
+                    ),
+                    None,
+                )
+            )
+            self.assert_true(bool(categorized_row), "direct grocery selector did not persist a section")
+            self.record(
+                "direct grocery selector dispatch",
+                "passed",
+                f"{expected_selector} -> {categorized_row['section']}",
+            )
+        else:
+            raise AssertionError("host exposes no known grocery categorization selector")
 
         child = {
             "title": f"{self.prefix} Child",
@@ -401,6 +489,53 @@ class LiveMatrix:
         self.assert_true(bool(unpinned), "smart-list unpin did not persist")
         self.record("list-pin/list-unpin smart list", "passed", editable)
 
+        built_in = next(
+            (item for item in self.smart_lists() if item.get("kind") == "built-in" and item.get("objectUUID")),
+            None,
+        )
+        self.assert_true(bool(built_in), "no built-in smart list is available for pin capability testing")
+        generic_fetch = self.private_capabilities.get("store", {}).get("fetchSmartListWithObjectID:error:", {})
+        if generic_fetch.get("available") is not True:
+            self.expect_fail(
+                "built-in smart-list pin unsupported gate",
+                ["list-pin", "--smart-list-id", str(built_in["id"]), "--private", "--json"],
+                "Built-in smart-list pinning is unsupported on this macOS version",
+            )
+        else:
+            original = bool(built_in.get("pinned"))
+            desired = not original
+            action = "list-pin" if desired else "list-unpin"
+            restore_action = "list-pin" if original else "list-unpin"
+            try:
+                self.json_command([action, "--smart-list-id", str(built_in["id"]), "--private", "--json"])
+                changed = self.retry(
+                    lambda: next(
+                        (
+                            item
+                            for item in self.smart_lists()
+                            if item.get("id") == built_in["id"] and bool(item.get("pinned")) == desired
+                        ),
+                        None,
+                    )
+                )
+                self.assert_true(bool(changed), "built-in smart-list pin state did not change")
+                self.record("built-in smart-list pin compatibility", "passed", action)
+            finally:
+                current = next((item for item in self.smart_lists() if item.get("id") == built_in["id"]), None)
+                if current and bool(current.get("pinned")) != original:
+                    self.json_command([restore_action, "--smart-list-id", str(built_in["id"]), "--private", "--json"])
+                    restored = self.retry(
+                        lambda: next(
+                            (
+                                item
+                                for item in self.smart_lists()
+                                if item.get("id") == built_in["id"] and bool(item.get("pinned")) == original
+                            ),
+                            None,
+                        )
+                    )
+                    self.assert_true(bool(restored), "built-in smart-list pin state was not restored")
+
     def run_templates(self, source_list: str):
         name = f"{self.prefix} Template"
         self.json_command(["template-create", name, "--from-list", source_list, "--private", "--json"])
@@ -422,35 +557,113 @@ class LiveMatrix:
     def cleanup(self):
         if self.keep:
             return
+        issues: list[str] = []
+
+        # Include prefix-matched rows so a partial create cannot escape tracking.
+        try:
+            self.created_templates.update(
+                item["name"]
+                for item in self.templates()
+                if isinstance(item.get("name"), str) and item["name"].startswith(self.prefix)
+            )
+            self.created_smart_lists.update(
+                item["name"]
+                for item in self.smart_lists()
+                if item.get("kind") == "custom"
+                and isinstance(item.get("name"), str)
+                and item["name"].startswith(self.prefix)
+            )
+            self.created_lists.update(
+                item["title"]
+                for item in self.lists()
+                if isinstance(item.get("title"), str) and item["title"].startswith(self.prefix)
+            )
+            search = self.json_command(["search", self.prefix, "--completed", "--json"])
+            self.created_reminders.update(
+                int(item["numericId"])
+                for item in search
+                if item.get("numericId") is not None
+                and isinstance(item.get("title"), str)
+                and item["title"].startswith(self.prefix)
+            )
+        except Exception as exc:
+            issues.append(f"cleanup inventory failed: {exc}")
+
         for name in sorted(self.created_templates, reverse=True):
             try:
                 if self.template_named(name):
-                    self.command(["template-delete", name, "--private", "--force", "--json"], expect=None)
-            except Exception:
-                pass
+                    result = self.command(["template-delete", name, "--private", "--force", "--json"], expect=None)
+                    if result.returncode != 0:
+                        issues.append(f"template delete failed for {name}: {result.stderr or result.stdout}")
+            except Exception as exc:
+                issues.append(f"template cleanup failed for {name}: {exc}")
         for name in sorted(self.created_smart_lists, reverse=True):
             try:
                 if self.smart_named(name):
-                    self.command(["smart-list-delete", name, "--private", "--force", "--json"], expect=None)
-            except Exception:
-                pass
+                    result = self.command(["smart-list-delete", name, "--private", "--force", "--json"], expect=None)
+                    if result.returncode != 0:
+                        issues.append(f"smart-list delete failed for {name}: {result.stderr or result.stdout}")
+            except Exception as exc:
+                issues.append(f"smart-list cleanup failed for {name}: {exc}")
         for rid in sorted(self.created_reminders, reverse=True):
             try:
-                self.command(["delete", str(rid), "--force", "--json"], expect=None)
-            except Exception:
-                pass
+                result = self.command(["delete", str(rid), "--force", "--json"], expect=None)
+                if result.returncode != 0:
+                    issues.append(f"reminder delete failed for {rid}: {result.stderr or result.stdout}")
+            except Exception as exc:
+                issues.append(f"reminder cleanup failed for {rid}: {exc}")
         for name in sorted(self.created_lists, reverse=True):
             try:
                 if self.list_named(name):
-                    self.command(["list-delete", name, "--force", "--json"], expect=None)
-            except Exception:
-                pass
+                    result = self.command(["list-delete", name, "--force", "--json"], expect=None)
+                    if result.returncode != 0:
+                        issues.append(f"list delete failed for {name}: {result.stderr or result.stdout}")
+            except Exception as exc:
+                issues.append(f"list cleanup failed for {name}: {exc}")
+
+        try:
+            clean = self.retry_absent(
+                lambda: (
+                    any(
+                        isinstance(item.get("name"), str) and item["name"].startswith(self.prefix)
+                        for item in self.templates()
+                    )
+                    or any(
+                        isinstance(item.get("name"), str) and item["name"].startswith(self.prefix)
+                        for item in self.smart_lists()
+                    )
+                    or any(
+                        isinstance(item.get("title"), str) and item["title"].startswith(self.prefix)
+                        for item in self.lists()
+                    )
+                    or any(
+                        isinstance(item.get("title"), str) and item["title"].startswith(self.prefix)
+                        for item in self.json_command(["search", self.prefix, "--completed", "--json"])
+                    )
+                )
+            )
+            if not clean:
+                issues.append(f"prefix-matched disposable data remains after cleanup: {self.prefix}")
+        except Exception as exc:
+            issues.append(f"cleanup readback failed: {exc}")
+
+        if issues:
+            raise AssertionError("; ".join(issues))
+        self.record("cleanup readback", "passed", "no prefix-matched data remains")
 
     def run(self):
         doctor = self.json_command(["doctor", "--for-agent", "--json"])
         checks = {item["name"]: item["status"] for item in doctor.get("checks", [])}
         self.assert_true(checks.get("private_helper") == "ok", "private helper is not available")
         self.record("doctor private helper", "passed", "ok")
+        self.private_capabilities = self.private_helper_json({"action": "capabilities"})
+        self.assert_true(self.private_capabilities.get("status") == "ok", "private capability probe failed")
+        self.assert_true(self.private_capabilities.get("saveCalled") is False, "capability probe must not save")
+        self.record(
+            "private helper capability probe",
+            "passed",
+            self.private_capabilities.get("operatingSystemVersion", "unknown OS"),
+        )
         self.run_guardrails()
         source_list = self.run_lists_and_reminders()
         self.run_smart_lists(source_list)
@@ -464,6 +677,11 @@ def main() -> int:
     parser.add_argument("--keep", action="store_true", help="Keep disposable Reminders data for manual inspection")
     args = parser.parse_args()
 
+    if args.keep and not args.prefix.strip():
+        parser.error("--keep with an empty --prefix is unsafe")
+    if not args.keep and len(args.prefix.strip()) < 8:
+        parser.error("--prefix must be at least 8 non-whitespace characters when cleanup is enabled")
+
     matrix = LiveMatrix(args.remctl, args.prefix, keep=args.keep)
     failed = False
     try:
@@ -472,8 +690,13 @@ def main() -> int:
         failed = True
         matrix.record("matrix failed", "failed", str(exc))
     finally:
-        matrix.cleanup()
-        matrix.close()
+        try:
+            matrix.cleanup()
+        except Exception as exc:
+            failed = True
+            matrix.record("cleanup failed", "failed", str(exc))
+        finally:
+            matrix.close()
 
     summary = {
         "status": "failed" if failed else "passed",
