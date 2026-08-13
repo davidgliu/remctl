@@ -1272,7 +1272,7 @@ class CliTests(unittest.TestCase):
             mock.patch.object(self.remctl, "open_db", return_value=object()),
             mock.patch.object(
                 self.remctl,
-                "resolve_required_list_target_or_die",
+                "resolve_show_target_or_die",
                 return_value={"id": 1, "title": "Groceries", "isGroceries": True},
             ),
             mock.patch.object(self.remctl, "q_reminders", return_value=rows),
@@ -1321,7 +1321,7 @@ class CliTests(unittest.TestCase):
             mock.patch.object(self.remctl, "open_db", return_value=object()),
             mock.patch.object(
                 self.remctl,
-                "resolve_required_list_target_or_die",
+                "resolve_show_target_or_die",
                 return_value={"id": 1, "title": "Groceries", "isGroceries": True},
             ),
             mock.patch.object(self.remctl, "q_reminders", return_value=rows),
@@ -4106,6 +4106,210 @@ class CliTests(unittest.TestCase):
                 )
         self.assertIn("either --section or --section-id", stderr.getvalue())
         db.close()
+
+    def _smart_list_section_db(self):
+        db = sqlite3.connect(":memory:")
+        db.row_factory = sqlite3.Row
+        db.executescript("""
+            CREATE TABLE ZREMCDBASELIST (
+                Z_PK INTEGER PRIMARY KEY,
+                ZNAME TEXT,
+                ZCKIDENTIFIER TEXT,
+                ZMARKEDFORDELETION INTEGER DEFAULT 0,
+                Z_ENT INTEGER,
+                ZSMARTLISTTYPE TEXT,
+                ZFILTERDATA BLOB,
+                ZMEMBERSHIPSOFREMINDERSINSECTIONSASDATA TEXT
+            );
+            CREATE TABLE ZREMCDBASESECTION (
+                Z_PK INTEGER PRIMARY KEY,
+                ZDISPLAYNAME TEXT,
+                ZLIST INTEGER,
+                ZSMARTLIST INTEGER,
+                ZCKIDENTIFIER TEXT,
+                ZMARKEDFORDELETION INTEGER DEFAULT 0
+            );
+        """)
+        db.execute(
+            "INSERT INTO ZREMCDBASELIST "
+            "(Z_PK, ZNAME, ZCKIDENTIFIER, ZMARKEDFORDELETION, Z_ENT, ZSMARTLISTTYPE, "
+            "ZMEMBERSHIPSOFREMINDERSINSECTIONSASDATA) "
+            "VALUES (1, 'To Do', 'SMART-TODO', 0, 4, ?, ?)",
+            (
+                self.remctl.CUSTOM_SMART_LIST_TYPE,
+                json.dumps({
+                    "memberships": [
+                        {"groupID": "NEXT-ID", "memberID": "REM-NEXT"},
+                        {"groupID": "DECK-ID", "memberID": "REM-DECK"},
+                    ]
+                }),
+            ),
+        )
+        db.execute(
+            "INSERT INTO ZREMCDBASELIST "
+            "(Z_PK, ZNAME, ZCKIDENTIFIER, ZMARKEDFORDELETION, Z_ENT, ZSMARTLISTTYPE) "
+            "VALUES (7, 'Work', 'LIST-WORK', 0, 3, NULL)"
+        )
+        db.executemany(
+            "INSERT INTO ZREMCDBASESECTION "
+            "(Z_PK, ZDISPLAYNAME, ZLIST, ZSMARTLIST, ZCKIDENTIFIER, ZMARKEDFORDELETION) "
+            "VALUES (?, ?, ?, ?, ?, 0)",
+            [
+                (1, "Next", None, 1, "NEXT-ID"),
+                (2, "On Deck", None, 1, "DECK-ID"),
+                (3, "Inbox", 7, None, "WORK-INBOX"),
+            ],
+        )
+        return db
+
+    def test_ordinary_section_reads_survive_schema_without_smartlist_column(self):
+        db = self._section_db()
+        db.execute(
+            "INSERT INTO ZREMCDBASELIST (Z_PK, ZMEMBERSHIPSOFREMINDERSINSECTIONSASDATA) VALUES (?, ?)",
+            (7, json.dumps({"memberships": []})),
+        )
+        db.execute(
+            "INSERT INTO ZREMCDBASESECTION "
+            "(Z_PK, ZDISPLAYNAME, ZLIST, ZCKIDENTIFIER, ZMARKEDFORDELETION) VALUES (?, ?, ?, ?, 0)",
+            (1, "Research", 7, "SECTION-1"),
+        )
+        try:
+            sections = self.remctl.q_sections(db, 7)
+            memberships = self.remctl.q_section_memberships(db, 7)
+            smart_sections = self.remctl.q_smart_list_sections(db, 1)
+        finally:
+            db.close()
+
+        self.assertEqual([row["ZDISPLAYNAME"] for row in sections], ["Research"])
+        self.assertEqual(memberships, {})
+        self.assertEqual(list(smart_sections), [])
+
+    def test_resolve_section_name_uses_unique_smart_list_section_from_any_home_list(self):
+        db = self._smart_list_section_db()
+        try:
+            self.assertEqual(
+                self.remctl.resolve_section_ckid(db, 7, section_name="Next"),
+                "NEXT-ID",
+            )
+            assignment = self.remctl.resolve_section_assignment(db, 7, section_name="Next")
+        finally:
+            db.close()
+
+        self.assertEqual(assignment, {"sectionId": "NEXT-ID", "smartListId": "SMART-TODO"})
+
+    def test_home_list_section_wins_over_same_named_smart_list_section(self):
+        db = self._smart_list_section_db()
+        db.execute(
+            "INSERT INTO ZREMCDBASESECTION "
+            "(Z_PK, ZDISPLAYNAME, ZLIST, ZSMARTLIST, ZCKIDENTIFIER, ZMARKEDFORDELETION) "
+            "VALUES (4, 'Next', 7, NULL, 'WORK-NEXT', 0)"
+        )
+        try:
+            assignment = self.remctl.resolve_section_assignment(db, 7, section_name="Next")
+        finally:
+            db.close()
+
+        self.assertEqual(assignment, {"sectionId": "WORK-NEXT", "smartListId": None})
+
+    def test_apply_private_changes_assign_section_includes_smart_list_id(self):
+        db = self._smart_list_section_db()
+        args = self._private_edit_args(section="Next")
+        try:
+            with (
+                mock.patch.object(self.remctl, "private_available", return_value=True),
+                mock.patch.object(
+                    self.remctl,
+                    "private_action",
+                    return_value={"status": "updated"},
+                ) as private_action,
+            ):
+                self.remctl.apply_private_changes("REM-1", args, db=db, list_pk=7)
+        finally:
+            db.close()
+
+        private_action.assert_called_once_with({
+            "action": "assign_section",
+            "id": "REM-1",
+            "sectionId": "NEXT-ID",
+            "smartListId": "SMART-TODO",
+        }, partial_context=None)
+
+    def test_sections_json_names_smart_list_sections_without_duplicating_them(self):
+        db = self._smart_list_section_db()
+        try:
+            with (
+                mock.patch.object(self.remctl, "open_db", return_value=db),
+                contextlib.redirect_stdout(io.StringIO()) as stdout,
+            ):
+                self.remctl.cmd_sections(SimpleNamespace(json=True))
+        finally:
+            db.close()
+
+        payload = json.loads(stdout.getvalue())
+        self.assertEqual(payload["To Do"], ["Next", "On Deck"])
+        self.assertEqual(payload["Work"], ["Inbox"])
+        self.assertNotIn("?", payload)
+
+    def test_show_custom_smart_list_keeps_unsectioned_matches(self):
+        rows = [
+            {
+                **self._show_row(1, "Do now", "REM-NEXT"),
+                "list_name": "Work",
+            },
+            {
+                **self._show_row(2, "Unsorted flagged", "REM-LOOSE"),
+                "list_name": "Work",
+            },
+        ]
+        smart_ref = {
+            "id": 1,
+            "title": "To Do",
+            "objectUUID": "SMART-TODO",
+            "kind": "custom",
+        }
+        args = SimpleNamespace(
+            list="To Do",
+            list_id=None,
+            completed=False,
+            json=True,
+            format=None,
+            verbose=False,
+            images=False,
+            image_mode=None,
+            image_width=None,
+        )
+        with (
+            mock.patch.object(self.remctl, "q_smart_list_sections", return_value=[
+                {"ZDISPLAYNAME": "Next", "ZCKIDENTIFIER": "NEXT-ID"},
+            ]),
+            mock.patch.object(
+                self.remctl,
+                "q_smart_list_section_memberships",
+                return_value={"REM-NEXT": "Next"},
+            ),
+            mock.patch.object(
+                self.remctl,
+                "q_smart_list_display_identifiers",
+                return_value=["REM-NEXT", "REM-LOOSE"],
+            ),
+            mock.patch.object(self.remctl, "q_reminders_by_identifiers", return_value=rows),
+            mock.patch.object(
+                self.remctl,
+                "preload_extras",
+                return_value=({1: 0, 2: 0}, {1: [], 2: []}),
+            ),
+            mock.patch.object(self.remctl, "preload_attachments", return_value={}),
+            mock.patch.object(self.remctl, "q_rich_link", return_value=None),
+            mock.patch.object(self.remctl, "q_assignment", return_value=None),
+            contextlib.redirect_stdout(io.StringIO()) as stdout,
+        ):
+            self.remctl.cmd_show_smart_list(args, object(), smart_ref)
+
+        payload = json.loads(stdout.getvalue())
+        by_title = {item["title"]: item.get("section") for item in payload}
+        self.assertEqual(by_title["Do now"], "Next")
+        self.assertIsNone(by_title["Unsorted flagged"])
+        self.assertEqual([item["smartList"] for item in payload], ["To Do", "To Do"])
 
     def _sharee_db(self):
         db = sqlite3.connect(":memory:")
@@ -8465,7 +8669,7 @@ class InlineImageTests(unittest.TestCase):
                 mock.patch.object(self.remctl, "open_db", return_value=db),
                 mock.patch.object(
                     self.remctl,
-                    "resolve_required_list_target_or_die",
+                    "resolve_show_target_or_die",
                     return_value={"id": 1, "title": "Projects"},
                 ),
                 mock.patch.object(self.remctl, "q_reminders", return_value=rows),
@@ -9048,7 +9252,7 @@ class InlineImageTests(unittest.TestCase):
                     mock.patch.object(self.remctl, "open_db", return_value=db),
                     mock.patch.object(
                         self.remctl,
-                        "resolve_required_list_target_or_die",
+                        "resolve_show_target_or_die",
                         return_value={"id": 1, "title": "Projects"},
                     ),
                     mock.patch.object(
@@ -9140,7 +9344,7 @@ class InlineImageTests(unittest.TestCase):
             mock.patch.object(self.remctl, "open_db", return_value=db),
             mock.patch.object(
                 self.remctl,
-                "resolve_required_list_target_or_die",
+                "resolve_show_target_or_die",
                 return_value={"id": 1, "title": "Projects"},
             ),
             mock.patch.object(
@@ -9393,7 +9597,7 @@ class InlineImageTests(unittest.TestCase):
                 mock.patch.object(self.remctl, "open_db", return_value=counting),
                 mock.patch.object(
                     self.remctl,
-                    "resolve_required_list_target_or_die",
+                    "resolve_show_target_or_die",
                     return_value={"id": 1, "title": "Projects"},
                 ),
                 mock.patch.object(self.remctl, "q_reminders", return_value=rows),
@@ -9862,7 +10066,7 @@ class TrailingBadgeTests(unittest.TestCase):
                 mock.patch.object(self.remctl, "open_db", return_value=db),
                 mock.patch.object(
                     self.remctl,
-                    "resolve_required_list_target_or_die",
+                    "resolve_show_target_or_die",
                     return_value={"id": 1, "title": "Projects"},
                 ),
                 mock.patch.object(self.remctl, "q_reminders", return_value=rows),
@@ -9943,7 +10147,7 @@ class TrailingBadgeTests(unittest.TestCase):
                 mock.patch.object(self.remctl, "open_db", return_value=counting),
                 mock.patch.object(
                     self.remctl,
-                    "resolve_required_list_target_or_die",
+                    "resolve_show_target_or_die",
                     return_value={"id": 1, "title": "Projects"},
                 ),
                 mock.patch.object(self.remctl, "q_reminders", return_value=rows),

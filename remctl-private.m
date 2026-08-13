@@ -16,6 +16,7 @@
 - (id)fetchListWithObjectID:(id)objectID error:(NSError **)error;
 - (id)fetchSmartListWithObjectID:(id)objectID error:(NSError **)error;
 - (id)fetchListSectionWithObjectID:(id)objectID error:(NSError **)error;
+- (id)fetchSmartListSectionWithObjectID:(id)objectID error:(NSError **)error;
 - (id)fetchCustomSmartListWithObjectID:(id)objectID error:(NSError **)error;
 - (id)fetchTemplateWithObjectID:(id)objectID error:(NSError **)error;
 - (id)fetchPrimaryActiveCloudKitAccountWithError:(NSError **)error;
@@ -70,6 +71,7 @@
 - (void)setSmartListType:(NSString *)smartListType;
 - (void)setSortingStyle:(NSString *)sortingStyle;
 - (void)updateManualOrdering:(id)manualOrdering;
+- (id)sectionsContextChangeItem;
 - (void)removeFromParentWithAccountChangeItem:(id)accountChangeItem;
 @end
 
@@ -466,6 +468,10 @@ static NSArray *reminderObjectIDsFromStrings(NSArray<NSString *> *identifiers, N
 
 static NSURL *sectionURL(NSString *ckIdentifier) {
     return [NSURL URLWithString:[NSString stringWithFormat:@"x-apple-reminderkit://REMCDListSection/%@", ckIdentifier]];
+}
+
+static NSURL *smartListSectionURL(NSString *ckIdentifier) {
+    return [NSURL URLWithString:[NSString stringWithFormat:@"x-apple-reminderkit://REMCDSmartListSection/%@", ckIdentifier]];
 }
 
 static NSArray *sectionObjectIDsFromStrings(NSArray *sectionIDs) {
@@ -2029,15 +2035,48 @@ int main(void) {
         } else if ([action isEqualToString:@"assign_section"]) {
             NSString *sectionID = cmd[@"sectionId"];
             if (![sectionID isKindOfClass:[NSString class]] || sectionID.length == 0) fail(@"sectionId is required");
-            id sectionObjectID = [REMObjectID objectIDWithURL:sectionURL(sectionID)];
-            error = nil;
-            id section = [store fetchListSectionWithObjectID:sectionObjectID error:&error];
-            if (!section) fail(error.localizedDescription ?: @"Section not found");
-            id list = [reminder list];
-            if (!list) fail(@"Reminder has no parent list");
-            id listChange = [save updateList:list];
-            if (!listChange) fail(@"Could not create ReminderKit list change item");
-            id sectionContext = [listChange sectionsContextChangeItem];
+            NSString *smartListID = cmd[@"smartListId"];
+            id sectionObjectID = nil;
+            id sectionContext = nil;
+            if ([smartListID isKindOfClass:[NSString class]] && smartListID.length > 0) {
+                sectionObjectID = [REMObjectID objectIDWithURL:smartListSectionURL(sectionID)];
+                if (!sectionObjectID) fail(@"Could not build ReminderKit smart list section object ID");
+                error = nil;
+                id section = nil;
+                if ([store respondsToSelector:@selector(fetchSmartListSectionWithObjectID:error:)]) {
+                    section = [store fetchSmartListSectionWithObjectID:sectionObjectID error:&error];
+                }
+                if (!section) fail(error.localizedDescription ?: @"Smart list section not found");
+                id smartObjectID = [REMObjectID objectIDWithURL:smartListURL(smartListID)];
+                if (!smartObjectID) fail(@"Could not build ReminderKit smart list object ID");
+                error = nil;
+                id smartList = [store fetchCustomSmartListWithObjectID:smartObjectID error:&error];
+                if (!smartList && [store respondsToSelector:@selector(fetchSmartListWithObjectID:error:)]) {
+                    smartList = [store fetchSmartListWithObjectID:smartObjectID error:&error];
+                }
+                if (!smartList) fail(error.localizedDescription ?: @"Smart list not found");
+                id smartChange = [save updateSmartList:smartList];
+                if (!smartChange) fail(@"Could not create ReminderKit smart list change item");
+                if (![smartChange respondsToSelector:@selector(sectionsContextChangeItem)]) {
+                    fail(@"ReminderKit smart list change item does not support sections");
+                }
+                sectionContext = [smartChange sectionsContextChangeItem];
+                details[@"smartListId"] = smartListID;
+            } else {
+                sectionObjectID = [REMObjectID objectIDWithURL:sectionURL(sectionID)];
+                if (!sectionObjectID) fail(@"Could not build ReminderKit list section object ID");
+                error = nil;
+                id section = [store fetchListSectionWithObjectID:sectionObjectID error:&error];
+                if (!section) fail(error.localizedDescription ?: @"Section not found");
+                id list = [reminder list];
+                if (!list) fail(@"Reminder has no parent list");
+                id listChange = [save updateList:list];
+                if (!listChange) fail(@"Could not create ReminderKit list change item");
+                if (![listChange respondsToSelector:@selector(sectionsContextChangeItem)]) {
+                    fail(@"ReminderKit list change item does not support sections");
+                }
+                sectionContext = [listChange sectionsContextChangeItem];
+            }
             if (!sectionContext || ![sectionContext respondsToSelector:@selector(setUnsavedMembershipsOfRemindersInSections:)]) {
                 fail(@"ReminderKit section context unavailable");
             }

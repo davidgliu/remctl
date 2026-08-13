@@ -1460,6 +1460,25 @@ def resolve_required_list_target_or_die(db, *, name=None, list_id=None, allow_gr
     return resolve_list_or_die(db, name=name, list_id=list_id, allow_groups=allow_groups)
 
 
+def resolve_show_target_or_die(db, *, name=None, list_id=None):
+    if name and list_id is not None:
+        print("Error: pass either a list name or --list-id, not both.", file=sys.stderr)
+        sys.exit(1)
+    if not name and list_id is None:
+        print("Error: pass a list name or --list-id.", file=sys.stderr)
+        sys.exit(1)
+    list_result = resolve_list_ref(db, name=name, list_id=list_id, allow_groups=True)
+    if list_result and not list_result.get("error"):
+        return list_result
+    if name and list_id is None:
+        smart_result = resolve_smart_list_ref(db, name=name)
+        if smart_result and not smart_result.get("error") and smart_result.get("kind") == "custom":
+            smart_result = dict(smart_result)
+            smart_result["isSmartList"] = True
+            return smart_result
+    return resolve_list_or_die(db, name=name, list_id=list_id, allow_groups=True)
+
+
 def bridge_list_target_payload(list_ref):
     payload = {"list": list_ref["title"]}
     if list_ref.get("objectUUID"):
@@ -1982,6 +2001,39 @@ def q_reminders(db, list_pk=None, completed=False, parent_pk=None, top_level=Fal
     ).fetchall()
 
 
+def q_reminders_by_identifiers(db, identifiers, *, completed=False, top_level=True, limit=2000):
+    ids = [identifier for identifier in identifiers if identifier]
+    if not ids:
+        return []
+    items = []
+    for offset in range(0, len(ids), 400):
+        chunk = ids[offset:offset + 400]
+        placeholders = ",".join("?" for _ in chunk)
+        clauses = [
+            f"r.ZCKIDENTIFIER IN ({placeholders})",
+            "r.ZMARKEDFORDELETION = 0",
+            "r.ZACCOUNT IS NOT NULL",
+            "l.Z_PK IS NOT NULL",
+        ]
+        params = list(chunk)
+        if completed:
+            clauses.append("r.ZCOMPLETED = 1")
+        else:
+            clauses.append("(r.ZCOMPLETED = 0 OR r.ZCOMPLETED IS NULL)")
+        if top_level:
+            clauses.append("(r.ZPARENTREMINDER IS NULL OR r.ZPARENTREMINDER = 0)")
+        rows = db.execute(
+            f"SELECT {rem_cols(db)} FROM ZREMCDREMINDER r LEFT JOIN ZREMCDBASELIST l "
+            f"ON r.ZLIST = l.Z_PK WHERE {' AND '.join(clauses)} "
+            f"ORDER BY r.ZCREATIONDATE DESC LIMIT ?",
+            params + [limit],
+        ).fetchall()
+        items.extend(rows)
+        if len(items) >= limit:
+            break
+    return items[:limit]
+
+
 def q_reminders_for_lists(db, list_pks, completed=False, top_level=False, limit=500):
     if not list_pks:
         return []
@@ -2110,6 +2162,59 @@ def q_smart_list_sections(db, smart_list_pk):
         ).fetchall()
     except sqlite3.OperationalError:
         return []
+
+
+def q_all_smart_list_sections(db):
+    if "ZSMARTLIST" not in table_column_names(db, "ZREMCDBASESECTION"):
+        return []
+    try:
+        return db.execute(
+            "SELECT Z_PK, ZDISPLAYNAME, ZSMARTLIST, ZCKIDENTIFIER FROM ZREMCDBASESECTION "
+            "WHERE ZMARKEDFORDELETION = 0 AND ZSMARTLIST IS NOT NULL ORDER BY Z_PK"
+        ).fetchall()
+    except sqlite3.OperationalError:
+        return []
+
+
+def q_smart_list_section_memberships(db, smart_list_pk):
+    try:
+        row = db.execute(
+            "SELECT ZMEMBERSHIPSOFREMINDERSINSECTIONSASDATA FROM ZREMCDBASELIST WHERE Z_PK = ?",
+            (smart_list_pk,),
+        ).fetchone()
+    except sqlite3.OperationalError:
+        return {}
+    if not row or not row[0]:
+        return {}
+    try:
+        data = json.loads(row[0])
+    except (json.JSONDecodeError, TypeError):
+        return {}
+    g2n = {section["ZCKIDENTIFIER"]: section["ZDISPLAYNAME"] for section in q_smart_list_sections(db, smart_list_pk)}
+    return {
+        membership["memberID"]: g2n[membership["groupID"]]
+        for membership in data.get("memberships", [])
+        if membership.get("groupID") in g2n and membership.get("memberID") and not membership.get("isObsolete")
+    }
+
+
+def q_smart_list_display_identifiers(db, smart_ref):
+    identifiers = []
+    seen = set()
+    memberships = q_smart_list_section_memberships(db, smart_ref["id"])
+    hint = q_manual_sort_hint(db, CUSTOM_SMART_LIST_MANUAL_ORDER_TYPE, smart_ref.get("objectUUID"))
+    candidates = list(memberships)
+    if hint:
+        candidates.extend(hint.get("topLevelElementIDs") or [])
+        secondary = hint.get("secondaryLevelElementIDsByTopLevelElementID") or {}
+        for children in secondary.values():
+            if isinstance(children, list):
+                candidates.extend(children)
+    for identifier in candidates:
+        if identifier and identifier not in seen:
+            seen.add(identifier)
+            identifiers.append(identifier)
+    return identifiers
 
 
 def q_section_member_counts(db, list_pk):
@@ -5005,7 +5110,7 @@ def normalize_section_id(value):
     return value or None
 
 
-def resolve_section_ckid(db, list_pk, section_name=None, section_id=None):
+def resolve_section_assignment(db, list_pk, section_name=None, section_id=None):
     section_id = normalize_section_id(section_id)
     if section_name and section_id:
         print("Error: pass either --section or --section-id, not both.", file=sys.stderr)
@@ -5022,20 +5127,59 @@ def resolve_section_ckid(db, list_pk, section_name=None, section_id=None):
             "WHERE ZLIST = ? AND ZMARKEDFORDELETION = 0 AND lower(ZCKIDENTIFIER) = lower(?)",
             (list_pk, section_id),
         ).fetchone()
-        if not row or not row["ZCKIDENTIFIER"]:
-            print(f"Error: section ID not found in target list: {section_id}", file=sys.stderr)
-            sys.exit(1)
-        return row["ZCKIDENTIFIER"]
+        if row and row["ZCKIDENTIFIER"]:
+            return {"sectionId": row["ZCKIDENTIFIER"], "smartListId": None}
+        smart_row = _smart_list_section_by_ckid(db, section_id)
+        if smart_row:
+            return smart_row
+        print(f"Error: section ID not found in target list: {section_id}", file=sys.stderr)
+        sys.exit(1)
 
     matches = [s for s in q_sections(db, list_pk) if (s["ZDISPLAYNAME"] or "").lower() == section_name.lower()]
-    if not matches:
+    if matches:
+        chosen = _choose_section_match(db, list_pk, section_name, matches)
+        return {"sectionId": chosen["ZCKIDENTIFIER"], "smartListId": None}
+
+    smart_matches = [
+        section for section in q_all_smart_list_sections(db)
+        if (section["ZDISPLAYNAME"] or "").lower() == section_name.lower()
+    ]
+    if not smart_matches:
         print(f"Error: section not found in target list: {section_name}", file=sys.stderr)
         sys.exit(1)
-    if len(matches) > 1:
+    if len(smart_matches) > 1:
+        options = ", ".join(
+            f"{section['ZCKIDENTIFIER']} (smart list {section['ZSMARTLIST']})"
+            for section in smart_matches
+        )
+        print(
+            f"Error: multiple smart-list sections named {section_name!r}. "
+            f"Use --section-id with one of: {options}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    chosen = smart_matches[0]
+    if not chosen["ZCKIDENTIFIER"]:
+        print(f"Error: section has no stable CloudKit identifier: {section_name}", file=sys.stderr)
+        sys.exit(1)
+    smart_ckid = q_smart_list_ckid(db, chosen["ZSMARTLIST"])
+    if not smart_ckid:
+        print("Error: smart list for that section has no stable CloudKit identifier.", file=sys.stderr)
+        sys.exit(1)
+    return {
+        "sectionId": chosen["ZCKIDENTIFIER"],
+        "smartListId": smart_ckid,
+    }
+
+
+def _choose_section_match(db, list_pk, section_name, matches):
+    if len(matches) == 1:
+        chosen = matches[0]
+    else:
         counts = q_section_member_counts(db, list_pk)
         non_empty = [s for s in matches if counts.get(s["ZCKIDENTIFIER"], 0) > 0]
         if len(non_empty) == 1:
-            matches = non_empty
+            chosen = non_empty[0]
         else:
             options = ", ".join(
                 f"{s['ZCKIDENTIFIER']} ({counts.get(s['ZCKIDENTIFIER'], 0)} reminder{'s' if counts.get(s['ZCKIDENTIFIER'], 0) != 1 else ''})"
@@ -5047,10 +5191,33 @@ def resolve_section_ckid(db, list_pk, section_name=None, section_id=None):
                 file=sys.stderr,
             )
             sys.exit(1)
-    if not matches[0]["ZCKIDENTIFIER"]:
+    if not chosen["ZCKIDENTIFIER"]:
         print(f"Error: section has no stable CloudKit identifier: {section_name}", file=sys.stderr)
         sys.exit(1)
-    return matches[0]["ZCKIDENTIFIER"]
+    return chosen
+
+
+def _smart_list_section_by_ckid(db, section_id):
+    if "ZSMARTLIST" not in table_column_names(db, "ZREMCDBASESECTION"):
+        return None
+    try:
+        row = db.execute(
+            "SELECT s.ZCKIDENTIFIER, sl.ZCKIDENTIFIER AS smart_list_ckid FROM ZREMCDBASESECTION s "
+            "JOIN ZREMCDBASELIST sl ON s.ZSMARTLIST = sl.Z_PK "
+            "WHERE s.ZMARKEDFORDELETION = 0 AND sl.ZMARKEDFORDELETION = 0 "
+            "AND lower(s.ZCKIDENTIFIER) = lower(?) AND s.ZSMARTLIST IS NOT NULL",
+            (section_id,),
+        ).fetchone()
+    except sqlite3.OperationalError:
+        return None
+    if not row or not row["ZCKIDENTIFIER"] or not row["smart_list_ckid"]:
+        return None
+    return {"sectionId": row["ZCKIDENTIFIER"], "smartListId": row["smart_list_ckid"]}
+
+
+def resolve_section_ckid(db, list_pk, section_name=None, section_id=None):
+    target = resolve_section_assignment(db, list_pk, section_name=section_name, section_id=section_id)
+    return None if target is None else target["sectionId"]
 
 
 def private_changes_from_args(a):
@@ -5270,17 +5437,20 @@ def apply_private_changes(reminder_ckid, a, db=None, list_pk=None, partial_conte
     if getattr(a, "section", None) or getattr(a, "section_id", None):
         if db is None:
             db = open_db()
-        section_id = resolve_section_ckid(
+        target = resolve_section_assignment(
             db,
             list_pk,
             section_name=getattr(a, "section", None),
             section_id=getattr(a, "section_id", None),
         )
-        results.append(private_action({
+        payload = {
             "action": "assign_section",
             "id": reminder_ckid,
-            "sectionId": section_id,
-        }, partial_context=partial_context))
+            "sectionId": target["sectionId"],
+        }
+        if target.get("smartListId"):
+            payload["smartListId"] = target["smartListId"]
+        results.append(private_action(payload, partial_context=partial_context))
 
     if getattr(a, "new_section", None):
         if db is None:
@@ -8283,17 +8453,67 @@ def cmd_show_group(a, db, group_ref):
     print(f"\n{len(items)} reminder{'s' if len(items) != 1 else ''}")
 
 
+def cmd_show_smart_list(a, db, smart_ref):
+    secs = q_smart_list_sections(db, smart_ref["id"])
+    memberships = q_smart_list_section_memberships(db, smart_ref["id"]) if secs else {}
+    identifiers = q_smart_list_display_identifiers(db, smart_ref)
+    items = q_reminders_by_identifiers(db, identifiers, completed=a.completed, top_level=True)
+    list_name = smart_ref["title"]
+    pks = [item["Z_PK"] for item in items]
+    sc, ht = preload_extras(db, pks)
+    att = preload_attachments(db, pks)
+    ind = preload_indicators(db, pks)
+    if a.json:
+        payload = [
+            to_dict(item, db, section=memberships.get(item["ZCKIDENTIFIER"]), _sc=sc, _ht=ht, _att=att)
+            for item in items
+        ]
+        for item in payload:
+            item["smartList"] = list_name
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+        return
+    if not items:
+        print(f"No {'active ' if not a.completed else ''}reminders in smart list '{safe_display(list_name)}'")
+        return
+    if getattr(a, "format", None) == "table":
+        print_reminder_table(items, db, args=a)
+        return
+    print(f"{C.bold(safe_display(list_name))} (smart list):")
+    img = _image_render_config_verbose(a)
+    if secs:
+        sec_items, unsectioned = {}, []
+        for item in items:
+            section_name = memberships.get(item["ZCKIDENTIFIER"])
+            if section_name:
+                sec_items.setdefault(section_name, []).append(item)
+            else:
+                unsectioned.append(item)
+        for item in unsectioned:
+            print(fmt(item, db, verbose=a.verbose, _sc=sc, _ht=ht, _img=img, _ind=ind))
+        for section_name in [section["ZDISPLAYNAME"] for section in secs]:
+            if section_name in sec_items:
+                print(f"\n  {C.bold(f'[{safe_display(section_name)}]')}")
+                for item in sec_items[section_name]:
+                    print(fmt(item, db, verbose=a.verbose, indent="  ", _sc=sc, _ht=ht, _img=img, _ind=ind))
+    else:
+        for item in items:
+            print(fmt(item, db, verbose=a.verbose, _sc=sc, _ht=ht, _img=img, _ind=ind))
+    print(f"\n{len(items)} reminder{'s' if len(items) != 1 else ''}")
+
+
 def cmd_show(a):
     if eventkit_read_requested(a):
         cmd_show_eventkit(a)
         return
     db = open_db()
-    list_ref = resolve_required_list_target_or_die(
+    list_ref = resolve_show_target_or_die(
         db,
         name=getattr(a, "list", None),
         list_id=getattr(a, "list_id", None),
-        allow_groups=True,
     )
+    if list_ref.get("isSmartList"):
+        cmd_show_smart_list(a, db, list_ref)
+        return
     if list_ref.get("isGroup"):
         cmd_show_group(a, db, list_ref)
         return
@@ -9573,7 +9793,18 @@ def cmd_info(a):
 
 def cmd_sections(a):
     db = open_db()
-    rows = q_sections(db)
+    rows = [row for row in q_sections(db) if row["ZLIST"]]
+    for section in q_all_smart_list_sections(db):
+        smart_name = None
+        row = db.execute(
+            "SELECT ZNAME FROM ZREMCDBASELIST WHERE Z_PK = ? AND ZMARKEDFORDELETION = 0",
+            (section["ZSMARTLIST"],),
+        ).fetchone() if section["ZSMARTLIST"] else None
+        if row:
+            smart_name = row["ZNAME"]
+        enriched = dict(section)
+        enriched["list_name"] = smart_name or "?"
+        rows.append(enriched)
     if a.json:
         out = {}
         for r in rows:
