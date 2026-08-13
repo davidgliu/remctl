@@ -107,7 +107,7 @@ remctl template-delete "Packing Template" --private --force
 
 ## CLI Syntax Rules
 
-RemCTL uses nouns for read-only inspectors (`lists`, `groups`, `group-info`, `smart-lists`, `templates`, `today`, `stats`) and verb-style commands for writes (`add`, `edit`, `delete`, plus the `section-*`, `list-*`, `group-*`, `smart-list-*`, and `template-*` write commands). Section-management commands keep the `section-*` prefix; list-management commands keep the `list-*` prefix; group writes keep the `group-*` prefix; custom smart-list writes keep the `smart-list-*` prefix; template writes keep the `template-*` prefix.
+RemCTL uses nouns for read-only inspectors (`lists`, `groups`, `group-info`, `smart-lists`, `templates`, `today`, `stats`) and verb-style commands for writes (`add`, `edit`, `reminder-move`, `delete`, plus the `section-*`, `list-*`, `group-*`, `smart-list-*`, and `template-*` write commands). Section-management commands keep the `section-*` prefix; list-management commands keep the `list-*` prefix; group writes keep the `group-*` prefix; custom smart-list writes keep the `smart-list-*` prefix; template writes keep the `template-*` prefix.
 
 Use `--json` on subcommands when scripting. For tabular read commands (`today`, `upcoming`, `overdue`, `flagged`, `urgent`, `lists`, `groups`, `show`, and `search`), `--format json|table|plain` can be passed globally before the command or directly on the read command, so both `remctl --format table show Work` and `remctl show Work --format table` are valid. Export keeps its own `--format json|csv` because that chooses a file format, not display style.
 
@@ -164,7 +164,7 @@ List names are resolved conservatively: exact match first, then case-insensitive
 
 `--subtask` accepts either a plain child title or a JSON object with child metadata. Rich subtask fields include `notes`, `due`, `priority`, `alarm`, `recurrence`, `earlyReminder`, `url`/`urls`, `tags`, `image`/`images`, `flagged`, `urgent`, and location alarm fields. A subtask `due` given as a date without a time creates an all-day subtask, matching the parent's date-only behavior.
 
-`--private` uses Apple's private ReminderKit framework through `remctl-private`. It does not write SQLite directly. Verified private writes include synced web rich links, synced tag add/replace/remove, section assignment/create/rename/delete, shared-list assignments, rich subtasks, image attachments, real flag state, urgent state, Early Reminders, location alarms, list appearance metadata, regular-list and custom-smart-list pin state, list group create/edit/delete, Groceries list metadata and categorization verification, custom smart-list creation/editing/deletion for verified materializing Reminders filters, and Reminders template create/apply/delete. Built-in smart-list pinning is separately capability-gated and fails before saving when the host's generic fetch is unavailable. Location alarms are guarded by `--private` but saved through the EventKit bridge as structured-location alarms because the private ReminderKit alarm mutation does not materialize reliably on current macOS. Generic file/PDF attachments are intentionally rejected because Reminders does not reliably show them even when private rows sync.
+`--private` uses Apple's private ReminderKit framework through `remctl-private`. It does not write SQLite directly. Verified private writes include synced web rich links, synced tag add/replace/remove, section assignment/create/rename/delete, shared-list assignments, rich subtasks, image attachments, real flag state, urgent state, Early Reminders, location alarms, reminder display ordering in ordinary lists and unsectioned custom smart lists, list appearance metadata, regular-list and custom-smart-list pin state, list group create/edit/delete, Groceries list metadata and categorization verification, custom smart-list creation/editing/deletion for verified materializing Reminders filters, and Reminders template create/apply/delete. Built-in smart-list pinning is separately capability-gated and fails before saving when the host's generic fetch is unavailable. Location alarms are guarded by `--private` but saved through the EventKit bridge as structured-location alarms because the private ReminderKit alarm mutation does not materialize reliably on current macOS. Generic file/PDF attachments are intentionally rejected because Reminders does not reliably show them even when private rows sync.
 
 Private rich URLs require public `http` or `https` hosts. RemCTL rejects loopback, `.local`, private, link-local, multicast, reserved, and unresolved hosts before creating or editing a reminder; rich subtask URLs follow the same rule. Non-private `--url` remains a notes fallback.
 
@@ -235,9 +235,29 @@ remctl delete 23880
 remctl delete 23880 --force
 ```
 
+Every destructive command (`delete`, `list-delete`, `section-delete`, `group-delete`, `smart-list-delete`, and `template-delete`) requires `--force` when `--json` is present or stdin is not a TTY. Without it, RemCTL performs no write, leaves stdout empty, emits a `confirmation_required` error on stderr in JSON mode, and exits 1. Human-only interactive prompts are written to stderr so command output stays clean.
+
 `done --date WHEN` records an explicit completion date instead of "now". It also works on an already-completed reminder to correct the stored completion date. `WHEN` must be an absolute `YYYY-MM-DD` or `YYYY-MM-DD HH:MM`; recurring reminders reject `--date` because plain completion advances the series and EventKit discards a manually supplied completion date.
 
 For parent reminders with subtasks, Reminders rejects an in-place EventKit list move. Some ordinary reminders can also hit EventKit list/container boundaries when moving between private and shared CalDAV containers. For a pure list move, RemCTL handles those shapes by cloning the reminder into the destination list with ReminderKit, verifying the cloned reminder and subtask count, then deleting the original. JSON output includes `method: "clone-delete"`, `oldId`, the new `id`, and `subtasksMoved` (`0` for ordinary reminders). Move first, then apply unrelated title/notes/due/private edits to the returned ID.
+
+## Reminder Ordering
+
+`reminder-move` changes a reminder's display position without moving it to another base list. It is an unsupported ReminderKit write and always requires `--private`.
+
+```bash
+remctl reminder-move 23880 --before 23881 --private
+remctl reminder-move 23880 --after 23881 --private
+remctl reminder-move 23880 --first --private
+remctl reminder-move 23880 --last --private --json
+
+remctl reminder-move 23880 --before 23881 --smart-list "Focus" --private
+remctl reminder-move 23880 --last --smart-list-id 170 --private --json
+```
+
+Without a smart-list target, the reminder and a `--before`/`--after` anchor must belong to the same ordinary list. With `--smart-list` or `--smart-list-id`, RemCTL reorders an unsectioned custom smart list and can position reminders whose base lists differ. Sectioned custom smart lists are refused before saving because their secondary-level `REMManualOrdering` shape has not been verified.
+
+Smart-list ordering requires an existing manual-order record, and relative anchors must already have persisted positions. RemCTL fails before writing when it cannot establish those boundaries. Successful commands re-read the local store and report `verified: true`; the helper writes through ReminderKit and never edits SQLite directly.
 
 ## Lists
 

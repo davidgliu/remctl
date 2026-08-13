@@ -2,7 +2,7 @@
 
 RemCTL's normal write path is EventKit via `remctl-bridge`. Private metadata writes are different: they use Apple's private ReminderKit framework through `remctl-private`. Location alarms remain behind the private command guardrail because agents should treat them as Reminders-only metadata, but RemCTL saves them with EventKit structured-location alarms because that path materializes reliably on current macOS.
 
-This mode is unsupported by Apple, optional, and explicit. Use `--private` on `add`, `edit`, private section/list appearance, pinning, and group commands, custom smart-list creation/editing/deletion, or template creation/application/deletion.
+This mode is unsupported by Apple, optional, and explicit. Use `--private` on `add`, `edit`, `reminder-move`, private section/list appearance, pinning, and group commands, custom smart-list creation/editing/deletion, or template creation/application/deletion.
 
 RemCTL still does not write directly to SQLite.
 
@@ -23,6 +23,7 @@ Verified on macOS/iCloud sync:
 - section creation and assignment: `--private --new-section "Research"`
 - section management: `section-create "Research" -l Projects --private`, `section-rename "Research" --new-name "Archive" -l Projects --private`, and `section-delete "Archive" -l Projects --private --force`
 - shared-list assignment: `--private --assign Alex`, `--private --assign alex@example.com`, or `--private --assign me`
+- reminder ordering: `reminder-move 23880 --before 23881 --private`, or `reminder-move 23880 --before 23881 --smart-list "Focus" --private`
 - subtasks: `--private --subtask "Follow up"` or rich JSON objects with child metadata
 - image attachments: `--private --image ~/Desktop/mockup.png`
 - real flag state: `edit ID --private --flagged` or `add ... --private -f`
@@ -200,6 +201,19 @@ Groceries writes use `REMListChangeItem.groceryContextChangeItem`: `list-create 
 `add --private --grocery` and `edit --private --grocery` verify automatic grocery sorting for the target reminder IDs. The target list must already be a detected Groceries list, and RemCTL fails before writing if it is not. RemCTL first polls the local section membership table because Reminders often sorts new items immediately; if the item is still unsectioned, RemCTL falls back to ReminderKit's explicit grocery categorizer. The JSON result includes `verifiedSections` and `source: "reminders_auto"` when the automatic sorter already handled it.
 
 The private grocery fallback supports both known selectors. Tahoe retains `categorizeGroceryItemsWithReminderIDs:` on the grocery-context change with UUID values. Golden Gate calls `autoCategorizeRemindersWithReminderIDs:` on the list change with `REMObjectID` values. A selector-name-only Golden Gate branch that reused Tahoe's receiver and UUID array returned a ReminderKit helper-communication error; the full Golden Gate branch persisted Produce section membership. A Tahoe experiment that substituted `REMObjectID` values returned success but tombstoned its disposable list, reminder, and section, so RemCTL deliberately keeps the existing Tahoe argument contract. RemCTL checks the live receivers before dispatch and catches Objective-C exceptions. The normal Reminders automatic-categorization wait remains first, so this private save runs only when the item is still unsectioned.
+
+## Reminder Ordering Examples
+
+```bash
+remctl reminder-move 23880 --before 23881 --private
+remctl reminder-move 23880 --first --private
+remctl reminder-move 23880 --after 23881 --smart-list "Focus" --private
+remctl reminder-move 23880 --last --smart-list-id 170 --private --json
+```
+
+Ordinary-list moves use ReminderKit's list ordering changes and require both relative reminders to share a base list. Unsectioned custom-smart-list moves update the existing `REMManualOrdering` object through `REMSmartListChangeItem`; they do not mutate the local SQLite row. Cross-list anchors are supported only when targeting a custom smart list.
+
+RemCTL intentionally refuses built-in smart lists, sectioned custom smart lists, missing manual-order records, and anchors without a persisted position. A custom smart list with no manual-order record must be manually reordered once in Reminders.app before RemCTL can preserve and update that ordering safely. Every successful command verifies the resulting identifier order from the local Reminders store before reporting success.
 
 ## Smart List Examples
 

@@ -266,6 +266,22 @@ class LiveMatrix:
         self.assert_true(bool(unpinned), "list-unpin did not persist")
         self.record("list-pin/list-unpin regular list", "passed", renamed)
 
+        order_first = self.create_reminder(f"{self.prefix} Order First", "-l", renamed)
+        order_second = self.create_reminder(f"{self.prefix} Order Second", "-l", renamed)
+        self.assert_true(order_first.get("numericId") is not None, "first ordering reminder has no numericId")
+        self.assert_true(order_second.get("numericId") is not None, "second ordering reminder has no numericId")
+        moved = self.json_command([
+            "reminder-move",
+            str(order_second["numericId"]),
+            "--before",
+            str(order_first["numericId"]),
+            "--private",
+            "--json",
+        ])
+        self.assert_true(moved.get("verified") is True, "reminder-move did not verify the stored order")
+        self.assert_true(moved.get("anchorId") == order_first["numericId"], "reminder-move returned the wrong anchor")
+        self.record("reminder-move ordinary list", "passed", renamed)
+
         grocery_row = self.create_list(grocery, "--private", "--groceries", "--grocery-locale", "en_US")
         self.assert_true(grocery_row.get("isGroceries"), "Groceries metadata did not persist")
         self.assert_true(grocery_row.get("grocery", {}).get("locale") == "en_US", "Groceries locale did not persist")

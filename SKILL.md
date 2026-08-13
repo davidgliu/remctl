@@ -15,7 +15,8 @@ The installed command can be invoked as `remctl`, `rctl`, or `reminders`; all th
 - Prefer JSON for automation and verification: `remctl today --json`, `remctl show Work --json`, `remctl info <id> --json`.
 - Never write directly to the Reminders SQLite database.
 - Do not use `--via-eventkit` by default. It is a limited read-only fallback for `show`, `search`, `today`, and `upcoming` when Full Disk Access blocks a basic read and the task can tolerate missing Reminders metadata.
-- For private reminder metadata, use regular `add` or `edit` with `--private`; use `edit --private --set-tags`, `--clear-tags`, or `--remove-tag` for synced tag replacement/removal; use `section-create`, `section-rename`, or `section-delete` with `--private` for section management; for private list appearance, Groceries mode, regular-list pinning, or custom-smart-list pinning, use `list-create --private`, `list-edit --private`, `list-pin --private`, or `list-unpin --private`; built-in smart-list pinning is host-capability-dependent. For list groups, use `group-create`, `group-edit`, `list-create --private --group`, or `group-delete` with `--private`; for custom smart lists, use `smart-list-create`, `smart-list-edit`, or `smart-list-delete` with `--private`; for Reminders templates, use `template-create`, `template-apply`, or `template-delete` with `--private`. Do not use raw database mutation.
+- For private reminder metadata, use regular `add` or `edit` with `--private`; use `reminder-move --private` for display ordering; use `edit --private --set-tags`, `--clear-tags`, or `--remove-tag` for synced tag replacement/removal; use `section-create`, `section-rename`, or `section-delete` with `--private` for section management; for private list appearance, Groceries mode, regular-list pinning, or custom-smart-list pinning, use `list-create --private`, `list-edit --private`, `list-pin --private`, or `list-unpin --private`; built-in smart-list pinning is host-capability-dependent. For list groups, use `group-create`, `group-edit`, `list-create --private --group`, or `group-delete` with `--private`; for custom smart lists, use `smart-list-create`, `smart-list-edit`, or `smart-list-delete` with `--private`; for Reminders templates, use `template-create`, `template-apply`, or `template-delete` with `--private`. Do not use raw database mutation.
+- For every destructive command, pass `--force` in agent or `--json` workflows. Without it, RemCTL returns `confirmation_required` on stderr and performs no write.
 
 ## Agent Routing
 
@@ -27,6 +28,7 @@ Start by deciding the write path. Public EventKit writes are stable and do not n
 | Create/edit ordinary reminder fields | `add`, `edit`, `done`, `undone`, `delete` | No | `info <id> --json` or `show <list> --json` |
 | Due date, priority, notes, recurrence, EventKit alarm | `add` or `edit` with `-d`, `-p`, `-n`, `--recurrence`, `--alarm` | No | `info <id> --json`; recurrence appears as `recurrence` |
 | Move an existing reminder to another list | `edit <id> -l LIST` or `edit <id> --list-id ID` | No | Use the returned `id`; clone-delete fallback may return a new ID plus `oldId` |
+| Reorder a reminder without changing its base list | `reminder-move <id> --before/--after <id>`; add `--smart-list NAME` for custom smart-list order | Yes | Command re-reads the stored identifier order and returns `verified: true` |
 | Set or clear the real flagged state | `flag <id>`, `unflag <id>`, `add -f/--flag` (AppleScript; needs Automation access) | No | `info <id> --json` under `flagged` |
 | Synced rich URL, real tags, section assignment, shared-list assignment, subtask, image, real flag, urgent, Early Reminder, location alarm | `add --private` or `edit --private` | Yes | `info <id> --json`; UI/device check when sync matters |
 | Replace/remove synced reminder tags | `edit --private --set-tags`, `edit --private --clear-tags`, `edit --private --remove-tag` | Yes | `info <id> --json` |
@@ -92,9 +94,12 @@ remctl list-symbols --json
 remctl edit 23880 -d clear --json
 remctl edit 23880 -l Work --json
 remctl edit 23880 --list-id 156 --json
+remctl reminder-move 23880 --before 23881 --private --json
+remctl reminder-move 23880 --last --smart-list "Focus" --private --json
 remctl edit 23880 --recurrence monthly --json
 remctl done 23880 --json
 remctl done 23880 --date 2026-05-27 --json
+remctl delete 23880 --force --json
 remctl flag 23880 --json
 remctl unflag 23880 --json
 remctl link --list-id 153 --json
@@ -117,7 +122,7 @@ remctl section-delete "Reading" -l Projects --private --force --json
 ## Syntax Rules
 
 - Use nouns for read-only inspectors: `lists`, `groups`, `group-info`, `smart-lists`, `templates`, `today`, `stats`.
-- Use verb-style commands for writes: `add`, `edit`, `delete`, plus the `section-*`, `list-*`, `group-*`, `smart-list-*`, and `template-*` write commands.
+- Use verb-style commands for writes: `add`, `edit`, `reminder-move`, `delete`, plus the `section-*`, `list-*`, `group-*`, `smart-list-*`, and `template-*` write commands.
 - Section-management commands use the `section-*` prefix; list-management commands use the `list-*` prefix; group writes use the `group-*` prefix; custom smart-list writes use the `smart-list-*` prefix; template writes use the `template-*` prefix.
 - Use `--json` on subcommands for automation. For tabular read commands (`today`, `upcoming`, `overdue`, `flagged`, `urgent`, `lists`, `show`, and `search`), `--format json|table|plain` can be passed globally before the command or directly on the read command; export's `--format json|csv` is separate and chooses a file format.
 - `export --format json|csv` chooses an export file format, not the display style.
@@ -160,7 +165,7 @@ remctl add "Ship release" -l Work --flag --json
 
 ## Private Metadata
 
-Use `--private` only when the user explicitly asks for private Reminders metadata or when a command needs synced web rich links, real tags, synced tag replacement/removal, sections, shared-list assignment, subtasks, image attachments, real flags, urgent state, Early Reminders, location alarms, private list appearance metadata, Groceries mode/categorization verification, regular-list or supported smart-list pinning, list group create/edit/delete, custom smart-list creation/editing/deletion, or Reminders template creation/application/deletion.
+Use `--private` only when the user explicitly asks for private Reminders metadata or when a command needs synced web rich links, real tags, synced tag replacement/removal, sections, shared-list assignment, subtasks, image attachments, real flags, urgent state, Early Reminders, location alarms, reminder display ordering, private list appearance metadata, Groceries mode/categorization verification, regular-list or supported smart-list pinning, list group create/edit/delete, custom smart-list creation/editing/deletion, or Reminders template creation/application/deletion.
 
 ```bash
 remctl add "Research" -l Projects --private --url "https://example.com" -t remctl --section "Research" --json
@@ -225,6 +230,7 @@ Private metadata rules:
 - `--private -t/--tags` creates real synced tags additively. On `add` without `--private`, tags are inline title hashtags. On `edit`, tags require `--private`.
 - `edit --private --set-tags`, `--clear-tags`, and repeatable `--remove-tag` rewrite the synced tag set. They cannot be combined with additive `-t/--tags` or with each other.
 - `edit -l/--list` and `edit --list-id` use the normal EventKit bridge first; they do not require `--private`. If a pure move is rejected by a list/container boundary, RemCTL can use a verified ReminderKit clone-delete fallback. In JSON, treat `id` as the current reminder ID; `oldId` means the original was intentionally deleted.
+- `reminder-move ID --before/--after OTHER --private` reorders within one ordinary list. Add `--smart-list NAME` or `--smart-list-id ID` for an unsectioned, manually ordered custom smart list. Sectioned custom smart lists are refused before saving. Trust success only when JSON returns `verified: true`.
 - `--section` resolves by name; if duplicates exist in the same list, RemCTL uses the single non-empty match when possible. Use `--section-id` for exact assignment.
 - `--assign` resolves a shared-list user by display name, first/last name, email/phone address, numeric sharee ID, object UUID, or `me`. Names are acceptable when unique; agents should inspect `remctl sharees LIST --json` first and prefer the returned `address`, `id`, or `objectUUID` when ambiguity matters. Use `--unassign` to clear the current assignment and verify with `remctl info ID --json` under `assignment`.
 - `--early-reminder` writes Reminders' private Early Reminder due-date delta alert. It accepts `15m`, `1h`, `2d`, `1w`, `1mo`, or `clear`; non-clear values require a due date and must be verified with `remctl info ID --json`.

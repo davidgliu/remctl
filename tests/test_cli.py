@@ -29,7 +29,7 @@ class CliTests(unittest.TestCase):
         cls._default_protocol_probe = mock.patch.object(
             cls.remctl,
             "_probe_private_protocol_version",
-            return_value={"ok": True, "version": 1},
+            return_value={"ok": True, "version": 2},
         )
         cls._default_protocol_probe.start()
 
@@ -5081,6 +5081,96 @@ class CliTests(unittest.TestCase):
             "cmd_delete", SimpleNamespace(id=1, json=True, force=True), "delete"
         )
 
+    def test_confirmation_required_is_structured_and_does_not_prompt_on_stdout(self):
+        args = SimpleNamespace(force=False, json=True)
+        with (
+            mock.patch.object(sys, "stdin", io.StringIO("")),
+            contextlib.redirect_stdout(io.StringIO()) as stdout,
+            contextlib.redirect_stderr(io.StringIO()) as stderr,
+            self.assertRaises(SystemExit) as raised,
+        ):
+            self.remctl.confirm_destructive_action(
+                args,
+                "Delete reminder? [y/N] ",
+                identifier=967,
+            )
+
+        self.assertEqual(raised.exception.code, 1)
+        self.assertEqual(stdout.getvalue(), "")
+        payload = json.loads(stderr.getvalue())
+        self.assertEqual(payload["status"], "error")
+        self.assertEqual(payload["code"], "confirmation_required")
+        self.assertEqual(payload["id"], 967)
+
+    def test_interactive_confirmation_prompt_uses_stderr(self):
+        class TTYInput(io.StringIO):
+            def isatty(self):
+                return True
+
+        with (
+            mock.patch.object(sys, "stdin", TTYInput("n\n")),
+            contextlib.redirect_stdout(io.StringIO()) as stdout,
+            contextlib.redirect_stderr(io.StringIO()) as stderr,
+        ):
+            confirmed = self.remctl.confirm_destructive_action(
+                SimpleNamespace(force=False, json=False),
+                "Delete reminder? [y/N] ",
+            )
+
+        self.assertFalse(confirmed)
+        self.assertEqual(stderr.getvalue(), "Delete reminder? [y/N] ")
+        self.assertEqual(stdout.getvalue(), "Cancelled.\n")
+
+    def test_all_delete_commands_share_noninteractive_confirmation_guard(self):
+        reminder = {"ZTITLE": "Throwaway", "list_name": "Reminders", "ZCKIDENTIFIER": "REM-1"}
+        list_ref = {"id": 10, "title": "Throwaway", "objectUUID": "LIST-1"}
+        smart_row = {
+            "Z_PK": 12,
+            "ZNAME": "Focus",
+            "ZCKIDENTIFIER": "SMART-1",
+            "ZSMARTLISTTYPE": "custom",
+        }
+        template_ref = {"id": 13, "name": "Packing", "objectUUID": "TEMPLATE-1"}
+        group_ref = {
+            "id": 14,
+            "title": "Writing",
+            "objectUUID": "GROUP-1",
+            "children": [{"id": 15, "title": "Editorial", "objectUUID": "LIST-3"}],
+        }
+        with (
+            mock.patch.object(self.remctl, "confirm_destructive_action", return_value=False) as confirm,
+            mock.patch.object(self.remctl, "require_private_metadata"),
+            mock.patch.object(self.remctl, "open_db", return_value=object()),
+            mock.patch.object(self.remctl, "q_reminder", return_value=reminder),
+            mock.patch.object(self.remctl, "resolve_required_list_target_or_die", return_value=list_ref),
+            mock.patch.object(self.remctl, "resolve_section_ckid", return_value="SECTION-1"),
+            mock.patch.object(self.remctl, "q_custom_smart_list_delete_matches", return_value=[smart_row]),
+            mock.patch.object(self.remctl, "resolve_required_template_target_or_die", return_value=template_ref),
+            mock.patch.object(self.remctl, "resolve_required_group_target_or_die", return_value=group_ref),
+            mock.patch.object(self.remctl, "bridge_available", return_value=True),
+            mock.patch.object(self.remctl, "bridge_call") as bridge_call,
+            mock.patch.object(self.remctl, "private_call") as private_call,
+        ):
+            self.remctl.cmd_delete(SimpleNamespace(id=1, force=False, json=False))
+            self.remctl.cmd_list_delete(SimpleNamespace(name="Throwaway", list_id=None, force=False, json=False))
+            self.remctl.cmd_section_delete(SimpleNamespace(
+                name="Current", section_id=None, list="Projects", list_id=None,
+                private=True, private_metadata=False, force=False, json=False,
+            ))
+            self.remctl.cmd_smart_list_delete(SimpleNamespace(
+                name="Focus", smart_list_id=None, private=True, force=False, json=False,
+            ))
+            self.remctl.cmd_template_delete(SimpleNamespace(
+                name="Packing", template_id=None, private=True, force=False, json=False,
+            ))
+            self.remctl.cmd_group_delete(SimpleNamespace(
+                name="Writing", group_id=None, private=True, force=False, json=False,
+            ))
+
+        self.assertEqual(confirm.call_count, 6)
+        bridge_call.assert_not_called()
+        private_call.assert_not_called()
+
     def _flag_cmd(self, cmd_name, *, set_result):
         reminder = self._FAKE_REMINDER
         out, err = io.StringIO(), io.StringIO()
@@ -7505,7 +7595,193 @@ class CliTests(unittest.TestCase):
             "existingSectionIds": [],
         }, partial_context=None)
 
-    def test_require_private_metadata_accepts_protocol_version_one(self):
+    def test_decode_manual_sort_hint_blob_accepts_version_prefix(self):
+        payload = {
+            "topLevelElementIDs": ["REM-1", "REM-2"],
+            "secondaryLevelElementIDsByTopLevelElementID": {"REM-1": ["CHILD-1"]},
+        }
+        encoded = b"\x01" + json.dumps(payload).encode("utf-8")
+
+        self.assertEqual(self.remctl.decode_manual_sort_hint_blob(encoded), payload)
+
+    def test_reorder_identifier_list_supports_relative_and_edge_positions(self):
+        ordering = ["A", "MOVE", "B", "C"]
+
+        self.assertEqual(
+            self.remctl.reorder_identifier_list(ordering, "MOVE", "after", "C"),
+            ["A", "B", "C", "MOVE"],
+        )
+        self.assertEqual(
+            self.remctl.reorder_identifier_list(ordering, "MOVE", "first"),
+            ["MOVE", "A", "B", "C"],
+        )
+        self.assertEqual(
+            self.remctl.reorder_identifier_list(ordering, "MOVE", "last"),
+            ["A", "B", "C", "MOVE"],
+        )
+
+    def test_smart_list_section_query_uses_smart_owner_column(self):
+        db = sqlite3.connect(":memory:")
+        db.row_factory = sqlite3.Row
+        try:
+            db.execute(
+                "CREATE TABLE ZREMCDBASESECTION ("
+                "Z_PK INTEGER PRIMARY KEY, ZDISPLAYNAME TEXT, ZSMARTLIST INTEGER, "
+                "ZCKIDENTIFIER TEXT, ZMARKEDFORDELETION INTEGER)"
+            )
+            db.execute(
+                "INSERT INTO ZREMCDBASESECTION VALUES (?, ?, ?, ?, 0)",
+                (1, "Current", 7, "SECTION"),
+            )
+
+            sections = self.remctl.q_smart_list_sections(db, 7)
+        finally:
+            db.close()
+
+        self.assertEqual([section["ZDISPLAYNAME"] for section in sections], ["Current"])
+
+    def test_reminder_move_in_custom_smart_list_sends_manual_order(self):
+        args = SimpleNamespace(
+            id=101,
+            before=202,
+            after=None,
+            first=False,
+            last=False,
+            smart_list="Focus",
+            smart_list_id=None,
+            private=True,
+            private_metadata=False,
+            json=True,
+        )
+        reminders = {
+            101: {
+                "ZCKIDENTIFIER": "MOVING",
+                "ZLIST": 12,
+                "ZTITLE": "Review proposal",
+                "list_name": "Work",
+            },
+            202: {
+                "ZCKIDENTIFIER": "ANCHOR",
+                "ZLIST": 4,
+                "ZTITLE": "Plan launch",
+                "list_name": "Projects",
+            },
+        }
+        hint = {
+            "objectUUID": "HINT",
+            "listType": 2,
+            "listID": "SMART",
+            "topLevelElementIDs": ["MOVING", "OTHER", "ANCHOR"],
+            "secondaryLevelElementIDsByTopLevelElementID": {},
+        }
+        with (
+            mock.patch.object(self.remctl, "require_private_metadata"),
+            mock.patch.object(self.remctl, "open_db", return_value=object()),
+            mock.patch.object(self.remctl, "q_reminder", side_effect=lambda _db, pk: reminders.get(pk)),
+            mock.patch.object(
+                self.remctl,
+                "resolve_smart_list_or_die",
+                return_value={"id": 7, "title": "Focus", "objectUUID": "SMART", "kind": "custom"},
+            ),
+            mock.patch.object(self.remctl, "q_manual_sort_hint", return_value=hint),
+            mock.patch.object(self.remctl, "q_smart_list_sections", return_value=[]),
+            mock.patch.object(self.remctl, "private_call", return_value={"status": "updated"}) as private_call,
+            mock.patch.object(self.remctl, "_wait_for_order", return_value=True),
+            contextlib.redirect_stdout(io.StringIO()) as stdout,
+        ):
+            self.remctl.cmd_reminder_move(args)
+
+        private_call.assert_called_once_with({
+            "action": "set_smart_list_manual_order",
+            "id": "MOVING",
+            "smartListId": "SMART",
+            "manualOrderingId": "HINT",
+            "listType": 2,
+            "topLevelElementIds": ["OTHER", "MOVING", "ANCHOR"],
+            "secondaryLevelElementIdsByTopLevelElementId": {},
+        })
+        result = json.loads(stdout.getvalue())
+        self.assertTrue(result["verified"])
+        self.assertEqual(result["smartList"], "Focus")
+        self.assertNotIn("section", result)
+
+    def test_reminder_move_rejects_sectioned_custom_smart_list_before_writing(self):
+        args = SimpleNamespace(
+            id=101,
+            before=None,
+            after=None,
+            first=True,
+            last=False,
+            smart_list="Focus",
+            smart_list_id=None,
+            private=True,
+            private_metadata=False,
+            json=True,
+        )
+        reminder = {
+            "ZCKIDENTIFIER": "MOVING",
+            "ZLIST": 12,
+            "ZTITLE": "Review proposal",
+            "list_name": "Work",
+        }
+        hint = {
+            "objectUUID": "HINT",
+            "listType": 2,
+            "listID": "SMART",
+            "topLevelElementIDs": ["MOVING"],
+            "secondaryLevelElementIDsByTopLevelElementID": {},
+        }
+        with (
+            mock.patch.object(self.remctl, "require_private_metadata"),
+            mock.patch.object(self.remctl, "open_db", return_value=object()),
+            mock.patch.object(self.remctl, "q_reminder", return_value=reminder),
+            mock.patch.object(
+                self.remctl,
+                "resolve_smart_list_or_die",
+                return_value={"id": 7, "title": "Focus", "objectUUID": "SMART", "kind": "custom"},
+            ),
+            mock.patch.object(self.remctl, "q_manual_sort_hint", return_value=hint),
+            mock.patch.object(self.remctl, "q_smart_list_sections", return_value=[{"Z_PK": 1}]),
+            mock.patch.object(self.remctl, "private_call") as private_call,
+            self.assertRaises(SystemExit),
+            contextlib.redirect_stderr(io.StringIO()) as stderr,
+        ):
+            self.remctl.cmd_reminder_move(args)
+
+        self.assertIn("sectioned custom smart lists is not supported", stderr.getvalue())
+        private_call.assert_not_called()
+
+    def test_reminder_move_rejects_cross_list_without_smart_list(self):
+        args = SimpleNamespace(
+            id=1,
+            before=2,
+            after=None,
+            first=False,
+            last=False,
+            smart_list=None,
+            smart_list_id=None,
+            private=True,
+            private_metadata=False,
+            json=True,
+        )
+        reminders = {
+            1: {"ZCKIDENTIFIER": "A", "ZLIST": 10, "ZTITLE": "A", "list_name": "One"},
+            2: {"ZCKIDENTIFIER": "B", "ZLIST": 20, "ZTITLE": "B", "list_name": "Two"},
+        }
+        with (
+            mock.patch.object(self.remctl, "require_private_metadata"),
+            mock.patch.object(self.remctl, "open_db", return_value=object()),
+            mock.patch.object(self.remctl, "q_reminder", side_effect=lambda _db, pk: reminders.get(pk)),
+            mock.patch.object(self.remctl, "private_call") as private_call,
+            self.assertRaises(SystemExit),
+            contextlib.redirect_stderr(io.StringIO()) as stderr,
+        ):
+            self.remctl.cmd_reminder_move(args)
+
+        self.assertIn("different lists require --smart-list", stderr.getvalue())
+        private_call.assert_not_called()
+
+    def test_require_private_metadata_accepts_protocol_version_two(self):
         self._default_protocol_probe.stop()
         self.remctl._private_protocol_probe = None
         try:
@@ -7517,9 +7793,9 @@ class CliTests(unittest.TestCase):
                     "private_call_result",
                     return_value={
                         "returncode": 0,
-                        "stdout": json.dumps({"status": "ok", "protocolVersion": 1}),
+                        "stdout": json.dumps({"status": "ok", "protocolVersion": 2}),
                         "stderr": "",
-                        "payload": {"status": "ok", "protocolVersion": 1},
+                        "payload": {"status": "ok", "protocolVersion": 2},
                     },
                 ) as private_call_result,
             ):
@@ -7529,6 +7805,22 @@ class CliTests(unittest.TestCase):
             self._default_protocol_probe.start()
 
         private_call_result.assert_called_once_with({"action": "protocol_version"}, timeout=5)
+
+    def test_require_private_metadata_rejects_protocol_version_one(self):
+        with (
+            mock.patch.object(self.remctl, "private_metadata_enabled", return_value=True),
+            mock.patch.object(self.remctl, "private_available", return_value=True),
+            mock.patch.object(
+                self.remctl,
+                "_probe_private_protocol_version",
+                return_value={"ok": True, "version": 1},
+            ),
+            self.assertRaises(SystemExit),
+            contextlib.redirect_stderr(io.StringIO()) as stderr,
+        ):
+            self.remctl.require_private_metadata(SimpleNamespace(private=True))
+
+        self.assertIn("protocol 1 < required 2", stderr.getvalue())
 
     def test_require_private_metadata_rejects_outdated_helper_unknown_action(self):
         self._default_protocol_probe.stop()
@@ -7556,7 +7848,7 @@ class CliTests(unittest.TestCase):
             self._default_protocol_probe.start()
 
         self.assertIn("remctl-private is outdated", stderr.getvalue())
-        self.assertIn("protocol 0 < required 1", stderr.getvalue())
+        self.assertIn("protocol 0 < required 2", stderr.getvalue())
 
     def test_require_private_metadata_memoizes_protocol_probe(self):
         self._default_protocol_probe.stop()
@@ -7570,9 +7862,9 @@ class CliTests(unittest.TestCase):
                     "private_call_result",
                     return_value={
                         "returncode": 0,
-                        "stdout": json.dumps({"status": "ok", "protocolVersion": 1}),
+                        "stdout": json.dumps({"status": "ok", "protocolVersion": 2}),
                         "stderr": "",
-                        "payload": {"status": "ok", "protocolVersion": 1},
+                        "payload": {"status": "ok", "protocolVersion": 2},
                     },
                 ) as private_call_result,
             ):
@@ -8016,7 +8308,7 @@ class InlineImageTests(unittest.TestCase):
         cls._default_protocol_probe = mock.patch.object(
             cls.remctl,
             "_probe_private_protocol_version",
-            return_value={"ok": True, "version": 1},
+            return_value={"ok": True, "version": 2},
         )
         cls._default_protocol_probe.start()
 

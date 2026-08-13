@@ -6,7 +6,7 @@ Date: 2026-08-12
 
 RemCTL should adopt MachOSwiftSection as a manual compatibility and drift-audit tool. It should not link `ReminderKitInternal` or rewrite the working Objective-C helper around recovered Swift declarations.
 
-`remctl-private` is the Objective-C helper that RemCTL launches for metadata EventKit cannot write: tags, sections, subtasks, smart lists, templates, groceries, rich URLs, assignments, Early Reminders, and related list properties. It currently links only `ReminderKit`, Foundation, and AppKit. The Python CLI invokes it automatically for `--private` operations and verifies helper protocol version 1.
+`remctl-private` is the Objective-C helper that RemCTL launches for metadata EventKit cannot write: tags, sections, subtasks, smart lists, templates, groceries, rich URLs, assignments, Early Reminders, and related list properties. It links only `ReminderKit`, Foundation, and AppKit. The audited v1.6.1 and compatibility follow-up used helper protocol 1; the later reminder-ordering follow-up below raises that boundary to protocol 2.
 
 The audit found two genuine current-host incompatibilities:
 
@@ -51,6 +51,26 @@ Tahoe:
 - Custom smart-list pin/unpin passed in both protocol-1 compatibility directions: an old payload without `isCustom` against the new helper, and a current payload with `isCustom: true` against the v1.6.1 helper. The built-in rejection left its row unchanged, and cleanup removed the disposable custom list.
 
 The CLI/helper protocol stays at version 1 because the payload change is additive. A new CLI sends `isCustom`, which an old helper ignores. A new helper retains the old fetch order when `isCustom` is absent. Ordinary public writes, reads, and unrelated private commands do not change. The only user-visible smart-list change is that an already-broken built-in pin attempt now fails earlier and precisely; custom pinning remains supported.
+
+## 2026-08-13 reminder-ordering follow-up
+
+The ordering review evaluated pull request 26 independently from its pull request 25 dependency. The broad smart-list-section rewrite in pull request 25 was rejected because it broke existing schemas, commands, and 19 unit tests. The retained implementation adds one dedicated read query for custom-smart-list section detection and leaves the ordinary section path unchanged.
+
+`reminder-move --private` adds `--before`, `--after`, `--first`, and `--last` ordering for ordinary lists and unsectioned custom smart lists. It increments the helper protocol to 2 because protocol-1 helpers do not understand either ordering action. Existing commands and payloads are otherwise unchanged; a stale helper fails the existing protocol preflight before any write.
+
+Runtime metadata on both Golden Gate 27.0 and Tahoe 26.2 reports:
+
+- `REMListChangeItem.insertReminderChangeItem:beforeReminderChangeItem:` and `insertReminderChangeItem:afterReminderChangeItem:` as `v32@0:8@16@24`.
+- `REMList.reminderIDsOrdering` as `@16@0:8`.
+- `REMSmartListChangeItem.updateManualOrdering:` as `v24@0:8@16`.
+- `REMManualOrdering.initWithObjectID:listType:listID:topLevelElementIDs:secondaryLevelElementIDsByTopLevelElementID:uncommitedElementsAccountID:modifiedDate:` as `@68@0:8@16s24@28@36@44@52@60`.
+- The pull request's attempted `setSortingStyle:` selector is absent.
+
+The final helper uses `REMObjectID` values for the manual ordering's top-level array and secondary-level dictionary keys. The pull request used string keys, which did not match the recovered `[REMObjectID: [REMObjectID]]` contract. Sectioned custom smart lists are refused before saving because their secondary-level ordering shape has not received a disposable write/readback test.
+
+Golden Gate passed 378 unit tests, a strict helper build, the full disposable private matrix with an ordinary-list reorder, and a separate disposable unsectioned custom-smart-list test. That second test created a manual-order record through ReminderKit, reordered it through the CLI, read back `verified: true`, and removed the smart list, base list, and reminders; all prefix counts were zero after cleanup.
+
+Tahoe passed the same 378 unit tests and strict helper build. Its read-only protocol-2 capability probe reported every watched ordering selector available and `saveCalled: false`. A Tahoe live ordering write was not run: the SSH host context does not have EventKit/Reminders authorization, and the prior temporary Script Editor permission had been revoked. This is a recorded validation limit, not a claimed live pass.
 
 ## Original audit baseline
 
@@ -342,6 +362,8 @@ Small watched-symbol list:
 - `REMStore`: account, reminder/list/section/template/custom-smart fetches; all-list/all-reminder enumeration.
 - `REMSaveRequest`: update/add methods and synchronous save.
 - List and smart-list appearance/pin setters.
+- Ordinary-list reminder ordering getters and before/after insertion selectors.
+- `REMManualOrdering` initialization and custom-smart-list manual-order updates.
 - Both grocery categorization selector spellings.
 - Smart-list filter/version setters.
 - Section ordering and membership setters.
