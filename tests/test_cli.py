@@ -4134,13 +4134,13 @@ class CliTests(unittest.TestCase):
             "INSERT INTO ZREMCDBASELIST "
             "(Z_PK, ZNAME, ZCKIDENTIFIER, ZMARKEDFORDELETION, Z_ENT, ZSMARTLISTTYPE, "
             "ZMEMBERSHIPSOFREMINDERSINSECTIONSASDATA) "
-            "VALUES (1, 'To Do', 'SMART-TODO', 0, 4, ?, ?)",
+            "VALUES (1, 'Focus', 'SMART-FOCUS', 0, 4, ?, ?)",
             (
                 self.remctl.CUSTOM_SMART_LIST_TYPE,
                 json.dumps({
                     "memberships": [
-                        {"groupID": "NEXT-ID", "memberID": "REM-NEXT"},
-                        {"groupID": "DECK-ID", "memberID": "REM-DECK"},
+                        {"groupID": "CURRENT-ID", "memberID": "REM-CURRENT"},
+                        {"groupID": "LATER-ID", "memberID": "REM-LATER"},
                     ]
                 }),
             ),
@@ -4155,8 +4155,8 @@ class CliTests(unittest.TestCase):
             "(Z_PK, ZDISPLAYNAME, ZLIST, ZSMARTLIST, ZCKIDENTIFIER, ZMARKEDFORDELETION) "
             "VALUES (?, ?, ?, ?, ?, 0)",
             [
-                (1, "Next", None, 1, "NEXT-ID"),
-                (2, "On Deck", None, 1, "DECK-ID"),
+                (1, "Current", None, 1, "CURRENT-ID"),
+                (2, "Later", None, 1, "LATER-ID"),
                 (3, "Inbox", 7, None, "WORK-INBOX"),
             ],
         )
@@ -4188,32 +4188,86 @@ class CliTests(unittest.TestCase):
         db = self._smart_list_section_db()
         try:
             self.assertEqual(
-                self.remctl.resolve_section_ckid(db, 7, section_name="Next"),
-                "NEXT-ID",
+                self.remctl.resolve_section_ckid(db, 7, section_name="Current"),
+                "CURRENT-ID",
             )
-            assignment = self.remctl.resolve_section_assignment(db, 7, section_name="Next")
+            assignment = self.remctl.resolve_section_assignment(db, 7, section_name="Current")
         finally:
             db.close()
 
-        self.assertEqual(assignment, {"sectionId": "NEXT-ID", "smartListId": "SMART-TODO"})
+        self.assertEqual(assignment, {"sectionId": "CURRENT-ID", "smartListId": "SMART-FOCUS"})
 
     def test_home_list_section_wins_over_same_named_smart_list_section(self):
         db = self._smart_list_section_db()
         db.execute(
             "INSERT INTO ZREMCDBASESECTION "
             "(Z_PK, ZDISPLAYNAME, ZLIST, ZSMARTLIST, ZCKIDENTIFIER, ZMARKEDFORDELETION) "
-            "VALUES (4, 'Next', 7, NULL, 'WORK-NEXT', 0)"
+            "VALUES (4, 'Current', 7, NULL, 'WORK-CURRENT', 0)"
         )
         try:
-            assignment = self.remctl.resolve_section_assignment(db, 7, section_name="Next")
+            assignment = self.remctl.resolve_section_assignment(db, 7, section_name="Current")
         finally:
             db.close()
 
-        self.assertEqual(assignment, {"sectionId": "WORK-NEXT", "smartListId": None})
+        self.assertEqual(assignment, {"sectionId": "WORK-CURRENT", "smartListId": None})
+
+    def test_resolve_section_name_errors_when_two_smart_lists_share_the_name(self):
+        db = self._smart_list_section_db()
+        db.execute(
+            "INSERT INTO ZREMCDBASELIST "
+            "(Z_PK, ZNAME, ZCKIDENTIFIER, ZMARKEDFORDELETION, Z_ENT, ZSMARTLISTTYPE) "
+            "VALUES (2, 'Review', 'SMART-REVIEW', 0, 4, ?)",
+            (self.remctl.CUSTOM_SMART_LIST_TYPE,),
+        )
+        db.execute(
+            "INSERT INTO ZREMCDBASESECTION "
+            "(Z_PK, ZDISPLAYNAME, ZLIST, ZSMARTLIST, ZCKIDENTIFIER, ZMARKEDFORDELETION) "
+            "VALUES (5, 'Current', NULL, 2, 'REVIEW-CURRENT', 0)"
+        )
+        try:
+            with contextlib.redirect_stderr(io.StringIO()) as stderr:
+                with self.assertRaises(SystemExit):
+                    self.remctl.resolve_section_assignment(db, 7, section_name="Current")
+        finally:
+            db.close()
+
+        self.assertIn("--section-id", stderr.getvalue())
+        self.assertIn("CURRENT-ID", stderr.getvalue())
+        self.assertIn("REVIEW-CURRENT", stderr.getvalue())
+
+    def test_resolve_section_id_targets_custom_smart_list_section(self):
+        db = self._smart_list_section_db()
+        try:
+            assignment = self.remctl.resolve_section_assignment(
+                db, 7, section_id="CURRENT-ID"
+            )
+        finally:
+            db.close()
+
+        self.assertEqual(assignment, {"sectionId": "CURRENT-ID", "smartListId": "SMART-FOCUS"})
+
+    def test_resolve_section_name_ignores_builtin_smart_list_sections(self):
+        db = self._smart_list_section_db()
+        db.execute(
+            "INSERT INTO ZREMCDBASELIST "
+            "(Z_PK, ZNAME, ZCKIDENTIFIER, ZMARKEDFORDELETION, Z_ENT, ZSMARTLISTTYPE) "
+            "VALUES (3, 'Today', 'SMART-TODAY', 0, 4, 'com.apple.reminders.smartlist.today')"
+        )
+        db.execute(
+            "INSERT INTO ZREMCDBASESECTION "
+            "(Z_PK, ZDISPLAYNAME, ZLIST, ZSMARTLIST, ZCKIDENTIFIER, ZMARKEDFORDELETION) "
+            "VALUES (6, 'Current', NULL, 3, 'TODAY-CURRENT', 0)"
+        )
+        try:
+            assignment = self.remctl.resolve_section_assignment(db, 7, section_name="Current")
+        finally:
+            db.close()
+
+        self.assertEqual(assignment, {"sectionId": "CURRENT-ID", "smartListId": "SMART-FOCUS"})
 
     def test_apply_private_changes_assign_section_includes_smart_list_id(self):
         db = self._smart_list_section_db()
-        args = self._private_edit_args(section="Next")
+        args = self._private_edit_args(section="Current")
         try:
             with (
                 mock.patch.object(self.remctl, "private_available", return_value=True),
@@ -4230,8 +4284,8 @@ class CliTests(unittest.TestCase):
         private_action.assert_called_once_with({
             "action": "assign_section",
             "id": "REM-1",
-            "sectionId": "NEXT-ID",
-            "smartListId": "SMART-TODO",
+            "sectionId": "CURRENT-ID",
+            "smartListId": "SMART-FOCUS",
         }, partial_context=None)
 
     def test_sections_json_names_smart_list_sections_without_duplicating_them(self):
@@ -4246,14 +4300,14 @@ class CliTests(unittest.TestCase):
             db.close()
 
         payload = json.loads(stdout.getvalue())
-        self.assertEqual(payload["To Do"], ["Next", "On Deck"])
+        self.assertEqual(payload["Focus"], ["Current", "Later"])
         self.assertEqual(payload["Work"], ["Inbox"])
         self.assertNotIn("?", payload)
 
     def test_show_custom_smart_list_keeps_unsectioned_matches(self):
         rows = [
             {
-                **self._show_row(1, "Do now", "REM-NEXT"),
+                **self._show_row(1, "Do now", "REM-CURRENT"),
                 "list_name": "Work",
             },
             {
@@ -4263,12 +4317,12 @@ class CliTests(unittest.TestCase):
         ]
         smart_ref = {
             "id": 1,
-            "title": "To Do",
-            "objectUUID": "SMART-TODO",
+            "title": "Focus",
+            "objectUUID": "SMART-FOCUS",
             "kind": "custom",
         }
         args = SimpleNamespace(
-            list="To Do",
+            list="Focus",
             list_id=None,
             completed=False,
             json=True,
@@ -4280,17 +4334,17 @@ class CliTests(unittest.TestCase):
         )
         with (
             mock.patch.object(self.remctl, "q_smart_list_sections", return_value=[
-                {"ZDISPLAYNAME": "Next", "ZCKIDENTIFIER": "NEXT-ID"},
+                {"ZDISPLAYNAME": "Current", "ZCKIDENTIFIER": "CURRENT-ID"},
             ]),
             mock.patch.object(
                 self.remctl,
                 "q_smart_list_section_memberships",
-                return_value={"REM-NEXT": "Next"},
+                return_value={"REM-CURRENT": "Current"},
             ),
             mock.patch.object(
                 self.remctl,
-                "q_smart_list_display_identifiers",
-                return_value=["REM-NEXT", "REM-LOOSE"],
+                "q_smart_list_persisted_reminder_ids",
+                return_value=["REM-CURRENT", "REM-LOOSE"],
             ),
             mock.patch.object(self.remctl, "q_reminders_by_identifiers", return_value=rows),
             mock.patch.object(
@@ -4307,9 +4361,9 @@ class CliTests(unittest.TestCase):
 
         payload = json.loads(stdout.getvalue())
         by_title = {item["title"]: item.get("section") for item in payload}
-        self.assertEqual(by_title["Do now"], "Next")
+        self.assertEqual(by_title["Do now"], "Current")
         self.assertIsNone(by_title["Unsorted flagged"])
-        self.assertEqual([item["smartList"] for item in payload], ["To Do", "To Do"])
+        self.assertEqual([item["smartList"] for item in payload], ["Focus", "Focus"])
 
     def _sharee_db(self):
         db = sqlite3.connect(":memory:")

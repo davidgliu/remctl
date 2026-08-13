@@ -474,6 +474,22 @@ static NSURL *smartListSectionURL(NSString *ckIdentifier) {
     return [NSURL URLWithString:[NSString stringWithFormat:@"x-apple-reminderkit://REMCDSmartListSection/%@", ckIdentifier]];
 }
 
+static id remObjectIDOrFail(NSURL *url, NSString *message) {
+    id objectID = [REMObjectID objectIDWithURL:url];
+    if (!objectID) fail(message);
+    return objectID;
+}
+
+static id sectionsContextOrFail(id changeItem, NSString *kind) {
+    if (!changeItem) {
+        fail([NSString stringWithFormat:@"Could not create ReminderKit %@ change item", kind]);
+    }
+    if (![changeItem respondsToSelector:@selector(sectionsContextChangeItem)]) {
+        fail([NSString stringWithFormat:@"ReminderKit %@ change item does not support sections", kind]);
+    }
+    return [changeItem sectionsContextChangeItem];
+}
+
 static NSArray *sectionObjectIDsFromStrings(NSArray *sectionIDs) {
     NSMutableArray *result = [NSMutableArray array];
     if (![sectionIDs isKindOfClass:[NSArray class]]) {
@@ -2039,43 +2055,30 @@ int main(void) {
             id sectionObjectID = nil;
             id sectionContext = nil;
             if ([smartListID isKindOfClass:[NSString class]] && smartListID.length > 0) {
-                sectionObjectID = [REMObjectID objectIDWithURL:smartListSectionURL(sectionID)];
-                if (!sectionObjectID) fail(@"Could not build ReminderKit smart list section object ID");
-                error = nil;
-                id section = nil;
-                if ([store respondsToSelector:@selector(fetchSmartListSectionWithObjectID:error:)]) {
-                    section = [store fetchSmartListSectionWithObjectID:sectionObjectID error:&error];
+                if (![store respondsToSelector:@selector(fetchSmartListSectionWithObjectID:error:)]) {
+                    fail(@"Smart-list section assignment is unsupported on this macOS version");
                 }
+                if (![store respondsToSelector:@selector(fetchCustomSmartListWithObjectID:error:)]) {
+                    fail(@"Custom smart-list section assignment is unsupported on this macOS version");
+                }
+                sectionObjectID = remObjectIDOrFail(smartListSectionURL(sectionID), @"Could not build ReminderKit smart list section object ID");
+                error = nil;
+                id section = [store fetchSmartListSectionWithObjectID:sectionObjectID error:&error];
                 if (!section) fail(error.localizedDescription ?: @"Smart list section not found");
-                id smartObjectID = [REMObjectID objectIDWithURL:smartListURL(smartListID)];
-                if (!smartObjectID) fail(@"Could not build ReminderKit smart list object ID");
+                id smartObjectID = remObjectIDOrFail(smartListURL(smartListID), @"Could not build ReminderKit smart list object ID");
                 error = nil;
                 id smartList = [store fetchCustomSmartListWithObjectID:smartObjectID error:&error];
-                if (!smartList && [store respondsToSelector:@selector(fetchSmartListWithObjectID:error:)]) {
-                    smartList = [store fetchSmartListWithObjectID:smartObjectID error:&error];
-                }
-                if (!smartList) fail(error.localizedDescription ?: @"Smart list not found");
-                id smartChange = [save updateSmartList:smartList];
-                if (!smartChange) fail(@"Could not create ReminderKit smart list change item");
-                if (![smartChange respondsToSelector:@selector(sectionsContextChangeItem)]) {
-                    fail(@"ReminderKit smart list change item does not support sections");
-                }
-                sectionContext = [smartChange sectionsContextChangeItem];
+                if (!smartList) fail(error.localizedDescription ?: @"Custom smart list not found");
+                sectionContext = sectionsContextOrFail([save updateSmartList:smartList], @"smart list");
                 details[@"smartListId"] = smartListID;
             } else {
-                sectionObjectID = [REMObjectID objectIDWithURL:sectionURL(sectionID)];
-                if (!sectionObjectID) fail(@"Could not build ReminderKit list section object ID");
+                sectionObjectID = remObjectIDOrFail(sectionURL(sectionID), @"Could not build ReminderKit list section object ID");
                 error = nil;
                 id section = [store fetchListSectionWithObjectID:sectionObjectID error:&error];
                 if (!section) fail(error.localizedDescription ?: @"Section not found");
                 id list = [reminder list];
                 if (!list) fail(@"Reminder has no parent list");
-                id listChange = [save updateList:list];
-                if (!listChange) fail(@"Could not create ReminderKit list change item");
-                if (![listChange respondsToSelector:@selector(sectionsContextChangeItem)]) {
-                    fail(@"ReminderKit list change item does not support sections");
-                }
-                sectionContext = [listChange sectionsContextChangeItem];
+                sectionContext = sectionsContextOrFail([save updateList:list], @"list");
             }
             if (!sectionContext || ![sectionContext respondsToSelector:@selector(setUnsavedMembershipsOfRemindersInSections:)]) {
                 fail(@"ReminderKit section context unavailable");
@@ -2089,9 +2092,7 @@ int main(void) {
             if (![name isKindOfClass:[NSString class]] || name.length == 0) fail(@"name is required");
             id list = [reminder list];
             if (!list) fail(@"Reminder has no parent list");
-            id listChange = [save updateList:list];
-            if (!listChange) fail(@"Could not create ReminderKit list change item");
-            id sectionContext = [listChange sectionsContextChangeItem];
+            id sectionContext = sectionsContextOrFail([save updateList:list], @"list");
             if (!sectionContext
                 || ![sectionContext respondsToSelector:@selector(setUnsavedMembershipsOfRemindersInSections:)]
                 || ![sectionContext respondsToSelector:@selector(setUnsavedSectionIDsOrdering:)]

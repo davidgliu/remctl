@@ -154,7 +154,7 @@ Reminders list groups are containers for lists. Use `groups` to inspect them, or
 
 List names are resolved conservatively: exact match first, then case-insensitive match, then a normalized fallback that ignores decorative punctuation and emoji. If more than one list matches, RemCTL fails before writing and prints the candidate IDs; pass `--list-id` to target one explicitly.
 
-`--section` resolves by name inside the target list. If duplicate section names exist, RemCTL uses the only non-empty matching section when there is exactly one. If the duplicate is still ambiguous, use `--section-id`.
+`--section` resolves by name in the reminder's home list first. If that list has no match, RemCTL uses a uniquely named custom smart-list section. If duplicates exist in the same list or across custom smart lists, RemCTL uses the single non-empty home-list match when possible; otherwise it fails before writing and prints the available stable IDs. `--section-id` can target a home-list section or a custom smart-list section. `sections --json` includes custom smart-list sections keyed by smart-list name.
 
 `section-create`, `section-rename`, and `section-delete` manage list sections through private ReminderKit and require `--private`. Create and rename refuse duplicate names in the target list. Delete prompts unless `--force` is passed and leaves reminder movement to Reminders' normal section-delete behavior.
 

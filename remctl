@@ -1450,23 +1450,22 @@ def resolve_list_or_die(db, name=None, list_id=None, *, allow_groups=False):
     _print_list_resolution_error(requested, result)
     sys.exit(1)
 
+def require_exclusive_name_or_id(name, id_value, *, noun, id_flag):
+    if name and id_value is not None:
+        print(f"Error: pass either a {noun} or {id_flag}, not both.", file=sys.stderr)
+        sys.exit(1)
+    if not name and id_value is None:
+        print(f"Error: pass a {noun} or {id_flag}.", file=sys.stderr)
+        sys.exit(1)
+
+
 def resolve_required_list_target_or_die(db, *, name=None, list_id=None, allow_groups=False):
-    if name and list_id is not None:
-        print("Error: pass either a list name or --list-id, not both.", file=sys.stderr)
-        sys.exit(1)
-    if not name and list_id is None:
-        print("Error: pass a list name or --list-id.", file=sys.stderr)
-        sys.exit(1)
+    require_exclusive_name_or_id(name, list_id, noun="list name", id_flag="--list-id")
     return resolve_list_or_die(db, name=name, list_id=list_id, allow_groups=allow_groups)
 
 
 def resolve_show_target_or_die(db, *, name=None, list_id=None):
-    if name and list_id is not None:
-        print("Error: pass either a list name or --list-id, not both.", file=sys.stderr)
-        sys.exit(1)
-    if not name and list_id is None:
-        print("Error: pass a list name or --list-id.", file=sys.stderr)
-        sys.exit(1)
+    require_exclusive_name_or_id(name, list_id, noun="list name", id_flag="--list-id")
     list_result = resolve_list_ref(db, name=name, list_id=list_id, allow_groups=True)
     if list_result and not list_result.get("error"):
         return list_result
@@ -1542,12 +1541,7 @@ def resolve_group_or_die(db, name=None, group_id=None):
 
 
 def resolve_required_group_target_or_die(db, *, name=None, group_id=None):
-    if name and group_id is not None:
-        print("Error: pass either a group name or --group-id, not both.", file=sys.stderr)
-        sys.exit(1)
-    if not name and group_id is None:
-        print("Error: pass a group name or --group-id.", file=sys.stderr)
-        sys.exit(1)
+    require_exclusive_name_or_id(name, group_id, noun="group name", id_flag="--group-id")
     return resolve_group_or_die(db, name=name, group_id=group_id)
 
 
@@ -2130,26 +2124,35 @@ def section_name_exists(db, list_pk, name, *, excluding_ckid=None):
     return False
 
 
+def _memberships_by_reminder_id(blob, group_id_to_name):
+    if not blob:
+        return {}
+    try:
+        data = json.loads(blob)
+    except (json.JSONDecodeError, TypeError):
+        return {}
+    return {
+        membership["memberID"]: group_id_to_name[membership["groupID"]]
+        for membership in data.get("memberships", [])
+        if membership.get("groupID") in group_id_to_name
+        and membership.get("memberID")
+        and not membership.get("isObsolete")
+    }
+
+
 def q_section_memberships(db, list_pk):
     row = db.execute(
         "SELECT ZMEMBERSHIPSOFREMINDERSINSECTIONSASDATA FROM ZREMCDBASELIST WHERE Z_PK = ?",
         (list_pk,)
     ).fetchone()
-    if not row or not row[0]: return {}
-    try:
-        data = json.loads(row[0])
-    except (json.JSONDecodeError, TypeError):
+    if not row or not row[0]:
         return {}
     sections = db.execute(
         "SELECT ZCKIDENTIFIER, ZDISPLAYNAME FROM ZREMCDBASESECTION "
         "WHERE ZLIST = ? AND ZMARKEDFORDELETION = 0", (list_pk,)
     ).fetchall()
     g2n = {s["ZCKIDENTIFIER"]: s["ZDISPLAYNAME"] for s in sections}
-    return {
-        m["memberID"]: g2n[m["groupID"]]
-        for m in data.get("memberships", [])
-        if m.get("groupID") in g2n and m.get("memberID") and not m.get("isObsolete")
-    }
+    return _memberships_by_reminder_id(row[0], g2n)
 
 
 def q_smart_list_sections(db, smart_list_pk):
@@ -2169,8 +2172,13 @@ def q_all_smart_list_sections(db):
         return []
     try:
         return db.execute(
-            "SELECT Z_PK, ZDISPLAYNAME, ZSMARTLIST, ZCKIDENTIFIER FROM ZREMCDBASESECTION "
-            "WHERE ZMARKEDFORDELETION = 0 AND ZSMARTLIST IS NOT NULL ORDER BY Z_PK"
+            "SELECT s.Z_PK, s.ZDISPLAYNAME, s.ZSMARTLIST, s.ZCKIDENTIFIER, sl.ZNAME as list_name "
+            "FROM ZREMCDBASESECTION s "
+            "JOIN ZREMCDBASELIST sl ON s.ZSMARTLIST = sl.Z_PK "
+            "WHERE s.ZMARKEDFORDELETION = 0 AND sl.ZMARKEDFORDELETION = 0 "
+            "AND s.ZSMARTLIST IS NOT NULL AND sl.ZSMARTLISTTYPE = ? "
+            "ORDER BY sl.ZNAME, s.Z_PK",
+            (CUSTOM_SMART_LIST_TYPE,),
         ).fetchall()
     except sqlite3.OperationalError:
         return []
@@ -2186,19 +2194,14 @@ def q_smart_list_section_memberships(db, smart_list_pk):
         return {}
     if not row or not row[0]:
         return {}
-    try:
-        data = json.loads(row[0])
-    except (json.JSONDecodeError, TypeError):
-        return {}
-    g2n = {section["ZCKIDENTIFIER"]: section["ZDISPLAYNAME"] for section in q_smart_list_sections(db, smart_list_pk)}
-    return {
-        membership["memberID"]: g2n[membership["groupID"]]
-        for membership in data.get("memberships", [])
-        if membership.get("groupID") in g2n and membership.get("memberID") and not membership.get("isObsolete")
+    g2n = {
+        section["ZCKIDENTIFIER"]: section["ZDISPLAYNAME"]
+        for section in q_smart_list_sections(db, smart_list_pk)
     }
+    return _memberships_by_reminder_id(row[0], g2n)
 
 
-def q_smart_list_display_identifiers(db, smart_ref):
+def q_smart_list_persisted_reminder_ids(db, smart_ref):
     identifiers = []
     seen = set()
     memberships = q_smart_list_section_memberships(db, smart_ref["id"])
@@ -5205,8 +5208,9 @@ def _smart_list_section_by_ckid(db, section_id):
             "SELECT s.ZCKIDENTIFIER, sl.ZCKIDENTIFIER AS smart_list_ckid FROM ZREMCDBASESECTION s "
             "JOIN ZREMCDBASELIST sl ON s.ZSMARTLIST = sl.Z_PK "
             "WHERE s.ZMARKEDFORDELETION = 0 AND sl.ZMARKEDFORDELETION = 0 "
-            "AND lower(s.ZCKIDENTIFIER) = lower(?) AND s.ZSMARTLIST IS NOT NULL",
-            (section_id,),
+            "AND lower(s.ZCKIDENTIFIER) = lower(?) AND s.ZSMARTLIST IS NOT NULL "
+            "AND sl.ZSMARTLISTTYPE = ?",
+            (section_id, CUSTOM_SMART_LIST_TYPE),
         ).fetchone()
     except sqlite3.OperationalError:
         return None
@@ -8456,7 +8460,7 @@ def cmd_show_group(a, db, group_ref):
 def cmd_show_smart_list(a, db, smart_ref):
     secs = q_smart_list_sections(db, smart_ref["id"])
     memberships = q_smart_list_section_memberships(db, smart_ref["id"]) if secs else {}
-    identifiers = q_smart_list_display_identifiers(db, smart_ref)
+    identifiers = q_smart_list_persisted_reminder_ids(db, smart_ref)
     items = q_reminders_by_identifiers(db, identifiers, completed=a.completed, top_level=True)
     list_name = smart_ref["title"]
     pks = [item["Z_PK"] for item in items]
@@ -9794,17 +9798,7 @@ def cmd_info(a):
 def cmd_sections(a):
     db = open_db()
     rows = [row for row in q_sections(db) if row["ZLIST"]]
-    for section in q_all_smart_list_sections(db):
-        smart_name = None
-        row = db.execute(
-            "SELECT ZNAME FROM ZREMCDBASELIST WHERE Z_PK = ? AND ZMARKEDFORDELETION = 0",
-            (section["ZSMARTLIST"],),
-        ).fetchone() if section["ZSMARTLIST"] else None
-        if row:
-            smart_name = row["ZNAME"]
-        enriched = dict(section)
-        enriched["list_name"] = smart_name or "?"
-        rows.append(enriched)
+    rows.extend(q_all_smart_list_sections(db))
     if a.json:
         out = {}
         for r in rows:

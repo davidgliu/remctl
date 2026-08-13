@@ -276,7 +276,7 @@ A few rules keep this safe and predictable:
 - `list-symbols` prints the 71 official Reminders emblem names. Use `list-symbols --preview` for the native badge contact sheet. Use `--emoji` for custom emoji badges.
 - Groceries writes verify Reminders' automatic sorter first, then use the private categorizer only if needed.
 - Group writes move list containers, not reminders. `group-delete` detaches child lists before deleting the group so their reminders are preserved.
-- If a section name is duplicated in the same list, RemCTL uses the single non-empty match when possible. Otherwise, pass `--section-id`.
+- `--section` resolves in the reminder's home list first, then a uniquely named custom smart-list section. If a name is duplicated in the same list or across custom smart lists, RemCTL uses the single non-empty home-list match when possible. Otherwise, pass `--section-id`.
 
 Verify with:
 
