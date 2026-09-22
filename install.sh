@@ -1,6 +1,6 @@
 #!/bin/bash
 # RemCTL Installer
-# Installs remctl, remctl-bridge, remctl-private, remctl-permissions, and shared runtime helpers.
+# Installs remctl (thin launcher), remctl_main.py, remctl-bridge, remctl-private, remctl-permissions, and shared runtime helpers.
 
 set -euo pipefail
 
@@ -86,6 +86,11 @@ echo -e "${BLUE}→${RESET} Installing remctl..."
 cp "$SCRIPT_DIR/remctl" "$BIN_DIR/remctl"
 chmod +x "$BIN_DIR/remctl"
 echo -e "  ${GREEN}✓${RESET} remctl → $BIN_DIR/remctl"
+
+echo -e "${BLUE}→${RESET} Installing CLI module..."
+cp "$SCRIPT_DIR/remctl_main.py" "$BIN_DIR/remctl_main.py"
+chmod 644 "$BIN_DIR/remctl_main.py"
+echo -e "  ${GREEN}✓${RESET} remctl_main.py → $BIN_DIR/remctl_main.py"
 
 echo -e "${BLUE}→${RESET} Installing aliases..."
 ln -sf "remctl" "$BIN_DIR/rctl"

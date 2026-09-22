@@ -1,6 +1,6 @@
 # Installation and Onboarding
 
-RemCTL is a copy-based install, not a Python package. The installer copies the CLI and helper files into a bin directory such as `~/bin` or `~/.local/bin`.
+RemCTL is a copy-based install, not a Python package. The installer copies a thin `remctl` launcher, `remctl_main.py` (the CLI body, bytecode-cached after the first run), and helper files into a bin directory such as `~/bin` or `~/.local/bin`.
 
 ## Requirements
 
@@ -176,6 +176,7 @@ Use this only for custom setups:
 ```bash
 mkdir -p ~/bin
 cp remctl ~/bin/remctl && chmod +x ~/bin/remctl
+cp remctl_main.py ~/bin/remctl_main.py
 cp remctl_runtime.py ~/bin/remctl_runtime.py
 cp remctl_serialization.py ~/bin/remctl_serialization.py
 cp remctl_smart_lists.py ~/bin/remctl_smart_lists.py

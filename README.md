@@ -440,7 +440,8 @@ remctl doctor
 
 | Path | Purpose |
 | --- | --- |
-| `remctl` | Main Python CLI |
+| `remctl` | Thin Python launcher (imports `remctl_main`) |
+| `remctl_main.py` | CLI body; installed next to `remctl` so Python can bytecode-cache it |
 | `remctl-bridge.swift` | Swift/EventKit write helper source |
 | `remctl-private.m` | Unsupported private ReminderKit metadata helper source |
 | `remctl-permissions.swift` | Swift/AppKit guided Full Disk Access helper source |

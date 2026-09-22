@@ -55,6 +55,7 @@ RESET='\033[0m'
 
 FILES=(
     remctl
+    remctl_main.py
     remctl_runtime.py
     remctl_serialization.py
     remctl_smart_lists.py

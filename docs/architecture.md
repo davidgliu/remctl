@@ -11,11 +11,12 @@ RemCTL intentionally splits reads and writes.
 ## Components
 
 ```text
-remctl (Python)
-  ├─ reads Reminders CoreData SQLite database
-  ├─ formats human and JSON output
-  ├─ calls remctl-bridge for normal writes and limited EventKit reads
-  └─ calls remctl-private for opt-in private metadata writes
+remctl (thin Python launcher)
+  └─ remctl_main.py (CLI body; bytecode-cached after first invoke)
+       ├─ reads Reminders CoreData SQLite database
+       ├─ formats human and JSON output
+       ├─ calls remctl-bridge for normal writes and limited EventKit reads
+       └─ calls remctl-private for opt-in private metadata writes
 
 remctl-bridge (Swift)
   └─ writes through EventKit and supports --via-eventkit read fallback
@@ -49,7 +50,7 @@ This exposes fields EventKit does not expose cleanly for fast list views:
 - macOS 26 urgent state
 - Early Reminder due-date delta alerts
 
-RemCTL opens the database read-only. It never writes to SQLite.
+RemCTL opens the database read-only. It never writes to SQLite. The chosen `Data-*.sqlite` path is cached under the config directory (`store-path-cache.json`) using sqlite/WAL/SHM mtime and size plus the candidate-set identity, so later invocations skip full `COUNT(*)` scoring until those files change. Recurrence fields on reminder rows come from one `LEFT JOIN` onto the recurrence entity, not a correlated subquery per column.
 
 ### Attachment Resolution and Rendering
 

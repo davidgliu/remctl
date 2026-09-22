@@ -25,7 +25,7 @@ from helpers import load_module
 class CliTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.remctl = load_module("remctl_cli_test", "remctl")
+        cls.remctl = load_module("remctl_cli_test", "remctl_main.py")
         cls._default_protocol_probe = mock.patch.object(
             cls.remctl,
             "_probe_private_protocol_version",
@@ -577,6 +577,7 @@ class CliTests(unittest.TestCase):
             self._store_db(active, reminders=2, active=1, objects=2)
             with (
                 mock.patch.object(self.remctl, "STORE_DIR", store),
+                mock.patch.object(self.remctl, "CONFIG_DIR", Path(tmpdir) / "config"),
                 mock.patch.object(self.remctl, "reminders_store_access_error", return_value=None),
             ):
                 self.assertEqual(self.remctl.find_main_db_path(), active)
@@ -591,6 +592,7 @@ class CliTests(unittest.TestCase):
             Path(f"{second}-wal").write_bytes(b"x" * 4096)
             with (
                 mock.patch.object(self.remctl, "STORE_DIR", store),
+                mock.patch.object(self.remctl, "CONFIG_DIR", Path(tmpdir) / "config"),
                 mock.patch.object(self.remctl, "reminders_store_access_error", return_value=None),
             ):
                 self.assertEqual(self.remctl.find_main_db_path(), second)
@@ -8557,7 +8559,7 @@ def _tiny_jpeg_bytes():
 class InlineImageTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.remctl = load_module("remctl_cli_test", "remctl")
+        cls.remctl = load_module("remctl_cli_test", "remctl_main.py")
         import remctl_images
         import remctl_serialization
 
@@ -9754,7 +9756,7 @@ class ImageFlagParsingTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.remctl = load_module("remctl_cli_test", "remctl")
+        cls.remctl = load_module("remctl_cli_test", "remctl_main.py")
 
     def _parse(self, argv):
         parser, sub = self.remctl.build_parser()
@@ -9845,7 +9847,7 @@ class TrailingBadgeTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.remctl = load_module("remctl_badge_test", "remctl")
+        cls.remctl = load_module("remctl_badge_test", "remctl_main.py")
 
     def setUp(self):
         self._color_enabled = self.remctl.C.enabled

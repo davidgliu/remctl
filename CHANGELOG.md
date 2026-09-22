@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **Faster read-path startup.** The installed `remctl` command is now a thin wrapper that imports `remctl_main.py`, so Python can bytecode-cache the CLI body after the first run (`install.sh` copies both files). Chosen Reminders store path is cached under the config directory and skipped when sqlite/WAL/SHM mtime, size, and the candidate set still match. Recurrence columns in reminder queries use one `LEFT JOIN` instead of ~10 correlated subqueries. Behavior is unchanged; Apple's store is still opened `mode=ro` and closed at process end.
+
 ## 1.7.0 — 2026-08-13
 
 This release adds verified reminder ordering, makes every destructive command safe in non-interactive workflows, and hardens private ReminderKit behavior across Tahoe and Golden Gate.
