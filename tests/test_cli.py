@@ -4367,6 +4367,106 @@ class CliTests(unittest.TestCase):
         self.assertIsNone(by_title["Unsorted flagged"])
         self.assertEqual([item["smartList"] for item in payload], ["Focus", "Focus"])
 
+    def test_show_sectioned_smart_list_intersects_filter_and_keeps_sectioned_subtasks(self):
+        now = self.remctl.datetime.now()
+        today_ts = self.remctl.to_ts(now)
+        rows = [
+            {
+                **self._show_row(1, "Stale Next membership", "REM-STALE"),
+                "list_name": "Work",
+                "ZFLAGGED": 0,
+            },
+            {
+                **self._show_row(2, "Send a follow up email about my mom's clinical trial", "REM-SUB"),
+                "list_name": "Work",
+                "ZFLAGGED": 1,
+                "ZPARENTREMINDER": 99,
+            },
+            {
+                **self._show_row(3, "Pay the water bill", "REM-TODAY"),
+                "list_name": "Work",
+                "ZDUEDATE": today_ts,
+                "ZDISPLAYDATEDATE": today_ts,
+            },
+        ]
+        smart_ref = {
+            "id": 1,
+            "title": "To Do",
+            "objectUUID": "SMART-TODO",
+            "kind": "custom",
+            "filterData": b'{"operation":"or","date":{"today":true},"flagged":true}',
+        }
+        args = SimpleNamespace(
+            list="To Do",
+            list_id=None,
+            completed=False,
+            json=True,
+            format=None,
+            verbose=False,
+            images=False,
+            image_mode=None,
+            image_width=None,
+        )
+        with (
+            mock.patch.object(self.remctl, "q_smart_list_sections", return_value=[
+                {"ZDISPLAYNAME": "Next", "ZCKIDENTIFIER": "NEXT-ID"},
+            ]),
+            mock.patch.object(
+                self.remctl,
+                "q_smart_list_section_memberships",
+                return_value={
+                    "REM-STALE": "Next",
+                    "REM-SUB": "Next",
+                    "REM-TODAY": "Next",
+                },
+            ),
+            mock.patch.object(
+                self.remctl,
+                "q_smart_list_persisted_reminder_ids",
+                return_value=["REM-STALE", "REM-SUB", "REM-TODAY"],
+            ),
+            mock.patch.object(
+                self.remctl,
+                "q_reminders_by_identifiers",
+                return_value=rows,
+            ) as by_ids,
+            mock.patch.object(
+                self.remctl,
+                "preload_extras",
+                return_value=({1: 0, 2: 0, 3: 0}, {1: [], 2: [], 3: []}),
+            ),
+            mock.patch.object(self.remctl, "preload_attachments", return_value={}),
+            mock.patch.object(self.remctl, "q_rich_link", return_value=None),
+            mock.patch.object(self.remctl, "q_assignment", return_value=None),
+            contextlib.redirect_stdout(io.StringIO()) as stdout,
+        ):
+            self.remctl.cmd_show_smart_list(args, object(), smart_ref)
+
+        self.assertFalse(by_ids.call_args.kwargs["top_level"])
+        payload = json.loads(stdout.getvalue())
+        by_title = {item["title"]: item.get("section") for item in payload}
+        self.assertNotIn("Stale Next membership", by_title)
+        self.assertEqual(by_title["Send a follow up email about my mom's clinical trial"], "Next")
+        self.assertEqual(by_title["Pay the water bill"], "Next")
+        self.assertEqual([item["smartList"] for item in payload], ["To Do", "To Do"])
+
+    def test_custom_smart_list_filter_payload_reads_zfilterdata(self):
+        db = self._smart_list_section_db()
+        db.execute(
+            "UPDATE ZREMCDBASELIST SET ZFILTERDATA = ? WHERE Z_PK = 1",
+            (b'{"operation":"or","date":{"today":true},"flagged":true}',),
+        )
+        try:
+            payload = self.remctl.q_custom_smart_list_filter_payload(
+                db, {"id": 1, "kind": "custom"}
+            )
+        finally:
+            db.close()
+
+        self.assertEqual(payload["operation"], "or")
+        self.assertEqual(payload["date"], {"today": True})
+        self.assertTrue(payload["flagged"])
+
     def _sharee_db(self):
         db = sqlite3.connect(":memory:")
         db.row_factory = sqlite3.Row

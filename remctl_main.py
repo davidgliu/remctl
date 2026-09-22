@@ -48,6 +48,7 @@ from remctl_smart_lists import (
     decode_smart_list_filter_blob,
     encode_supported_filter_payload,
     normalize_match_operation,
+    reminder_matches_smart_list_filter,
 )
 
 try:
@@ -2124,7 +2125,15 @@ def q_reminders_by_identifiers(db, identifiers, *, completed=False, top_level=Tr
         items.extend(rows)
         if len(items) >= limit:
             break
-    return items[:limit]
+    return order_reminders_by_identifiers(items[:limit], ids)
+
+
+def order_reminders_by_identifiers(items, identifiers):
+    rank = {identifier: index for index, identifier in enumerate(identifiers)}
+    return sorted(
+        items,
+        key=lambda item: rank.get(_item_get(item, "ZCKIDENTIFIER"), len(rank)),
+    )
 
 
 def q_reminders_for_lists(db, list_pks, completed=False, top_level=False, limit=500):
@@ -2311,6 +2320,75 @@ def q_smart_list_persisted_reminder_ids(db, smart_ref):
             seen.add(identifier)
             identifiers.append(identifier)
     return identifiers
+
+
+
+def q_custom_smart_list_filter_payload(db, smart_ref):
+    if smart_ref.get("kind") != "custom":
+        return None
+    blob = smart_ref.get("filterData")
+    if blob is None:
+        try:
+            row = db.execute(
+                "SELECT ZFILTERDATA FROM ZREMCDBASELIST WHERE Z_PK = ?",
+                (smart_ref["id"],),
+            ).fetchone()
+        except (AttributeError, sqlite3.Error, TypeError):
+            return None
+        if row is None:
+            return None
+        blob = row["ZFILTERDATA"] if _row_has_key(row, "ZFILTERDATA") else row[0]
+    return decode_smart_list_filter_blob(blob).get("payload")
+
+
+def q_list_ckids_by_pks(db, list_pks):
+    pks = sorted({pk for pk in list_pks if pk})
+    if not pks:
+        return {}
+    placeholders = ",".join("?" for _ in pks)
+    try:
+        rows = db.execute(
+            f"SELECT Z_PK, ZCKIDENTIFIER FROM ZREMCDBASELIST WHERE Z_PK IN ({placeholders})",
+            pks,
+        ).fetchall()
+    except (AttributeError, sqlite3.Error, TypeError):
+        return {}
+    return {row["Z_PK"]: row["ZCKIDENTIFIER"] for row in rows}
+
+
+def smart_list_filter_subject(item, *, tags=None, list_id=None):
+    due_raw = row_effective_due(item)
+    due = due_raw if isinstance(due_raw, datetime) else ts(due_raw)
+    return {
+        "flagged": _item_is_flagged(item),
+        "priority": _priority_value_from_item(item),
+        "due": due,
+        "all_day": _item_is_all_day(item),
+        "tags": tags or [],
+        "list_id": list_id,
+        "list_name": _list_name_from_item(item),
+    }
+
+
+def filter_sectioned_smart_list_items(db, items, smart_ref, *, hashtags_by_pk=None, now=None):
+    payload = q_custom_smart_list_filter_payload(db, smart_ref)
+    if not payload:
+        return items
+    hashtags_by_pk = hashtags_by_pk or {}
+    list_ckids = {}
+    if "lists" in payload:
+        list_ckids = q_list_ckids_by_pks(db, [_item_get(item, "ZLIST") for item in items])
+    matched = []
+    for item in items:
+        pk = _item_get(item, "Z_PK")
+        subject = smart_list_filter_subject(
+            item,
+            tags=hashtags_by_pk.get(pk, []),
+            list_id=list_ckids.get(_item_get(item, "ZLIST")),
+        )
+        if reminder_matches_smart_list_filter(payload, subject, now=now):
+            matched.append(item)
+    return matched
 
 
 def q_section_member_counts(db, list_pk):
