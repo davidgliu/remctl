@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import plistlib
 import xml.parsers.expat
-from datetime import datetime
+from datetime import datetime, timedelta
 
 
 CUSTOM_SMART_LIST_TYPE = "com.apple.reminders.smartlist.custom"
@@ -653,3 +653,197 @@ def encode_supported_filter_payload(payload) -> bytes:
     if not summary or not summary.get("supported") or summary.get("kind") == "all":
         raise SmartListFilterError("Unsupported smart list filter shape.")
     return json.dumps(payload, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+
+
+PRIORITY_CODE = {"high": 1, "medium": 5, "low": 9}
+_TIME_BANDS = {
+    "morning": range(0, 12),
+    "afternoon": range(12, 17),
+    "evening": range(17, 21),
+    "night": range(21, 24),
+}
+
+
+def reminder_matches_smart_list_filter(payload, subject, *, now=None):
+    """Return whether a reminder subject matches a decoded custom-smart-list filter.
+
+    Unknown families are skipped so a supported date/flagged filter can still
+    drop stale memberships even if location data is unavailable.
+    """
+    if not payload:
+        return True
+    families = {key: value for key, value in payload.items() if key != "operation"}
+    if not families:
+        return True
+    now = now or datetime.now()
+    matches = []
+    for key, value in families.items():
+        result = _match_filter_family(key, value, subject, now)
+        if result is not None:
+            matches.append(result)
+    if not matches:
+        return True
+    if payload.get("operation") == "or":
+        return any(matches)
+    return all(matches)
+
+
+def _match_filter_family(key, value, subject, now):
+    if key == "flagged":
+        return bool(subject.get("flagged")) if value is True else None
+    if key == "priorities" and isinstance(value, list):
+        codes = {PRIORITY_CODE[item] for item in value if item in PRIORITY_CODE}
+        if not codes:
+            return None
+        return int(subject.get("priority") or 0) in codes
+    if key == "date" and isinstance(value, dict):
+        return _match_date_filter(value, subject, now)
+    if key == "time" and isinstance(value, dict):
+        return _match_time_filter(value, subject)
+    if key == "hashtags" and isinstance(value, dict):
+        return _match_hashtag_filter(value, subject)
+    if key == "lists" and isinstance(value, dict):
+        return _match_lists_filter(value, subject)
+    return None
+
+
+def _due_datetime(subject):
+    due = subject.get("due")
+    return due if isinstance(due, datetime) else None
+
+
+def _parse_filter_day(value):
+    if not isinstance(value, str) or not value.strip():
+        return None
+    text = value.strip()
+    for fmt in ("%d-%m-%Y", "%Y-%m-%d", "%d/%m/%Y", "%Y/%m/%d"):
+        try:
+            return datetime.strptime(text, fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+def _match_date_filter(value, subject, now):
+    due = _due_datetime(subject)
+    due_day = due.date() if due else None
+    today = now.date()
+    if value == {"any": ""}:
+        return due is not None
+    if value == {"noDate": ""}:
+        return due is None
+    if "today" in value and isinstance(value.get("today"), bool):
+        if due_day is None:
+            return False
+        if due_day == today:
+            return True
+        return bool(value["today"]) and due_day < today
+    for key, predicate in (
+        ("onDate", lambda day: due_day == day),
+        ("beforeDate", lambda day: due_day < day),
+        ("afterDate", lambda day: due_day > day),
+    ):
+        if set(value.keys()) == {key}:
+            day = _parse_filter_day(value[key])
+            return due_day is not None and day is not None and predicate(day)
+    if set(value.keys()) == {"dateRange"}:
+        span = value["dateRange"]
+        if not (isinstance(span, list) and len(span) == 2):
+            return None
+        start, end = _parse_filter_day(span[0]), _parse_filter_day(span[1])
+        return due_day is not None and start and end and start <= due_day <= end
+    relative = value.get("relativeRange")
+    if isinstance(relative, dict):
+        return _match_relative_date(relative, due, now)
+    return None
+
+
+def _relative_delta(relative):
+    try:
+        magnitude = int(str(relative.get("magnitude")))
+    except (TypeError, ValueError):
+        return None
+    unit = str(relative.get("units") or "").rstrip("s")
+    mapping = {
+        "minute": timedelta(minutes=magnitude),
+        "hour": timedelta(hours=magnitude),
+        "day": timedelta(days=magnitude),
+        "week": timedelta(weeks=magnitude),
+        "month": timedelta(days=30 * magnitude),
+        "year": timedelta(days=365 * magnitude),
+    }
+    return mapping.get(unit)
+
+
+def _match_relative_date(relative, due, now):
+    delta = _relative_delta(relative)
+    if due is None or delta is None:
+        return False
+    include_past_due = bool(relative.get("includePastDue"))
+    direction = relative.get("direction")
+    if direction == "inNext":
+        return now <= due <= now + delta or (include_past_due and due < now)
+    if direction == "inPast":
+        return now - delta <= due <= now or (include_past_due and due < now - delta)
+    return None
+
+
+def _match_time_filter(value, subject):
+    if value == {"noTime": ""}:
+        return bool(subject.get("all_day"))
+    due = _due_datetime(subject)
+    if due is None or subject.get("all_day"):
+        return False
+    for key, hours in _TIME_BANDS.items():
+        if value == {key: ""}:
+            return due.hour in hours
+    return None
+
+
+def _normalized_tags(values):
+    return {str(item).lstrip("#").casefold() for item in values or [] if item}
+
+
+def _match_hashtag_filter(value, subject):
+    tags = _normalized_tags(subject.get("tags"))
+    if value == {"any": ""}:
+        return bool(tags)
+    if value == {"untagged": ""}:
+        return not tags
+    hashtags = value.get("hashtags")
+    if isinstance(hashtags, list):
+        return _normalized_tags(hashtags) <= tags
+    if not isinstance(hashtags, dict):
+        return None
+    include = _normalized_tags(hashtags.get("include"))
+    exclude = _normalized_tags(hashtags.get("exclude"))
+    if exclude and tags & exclude:
+        return False
+    if not include:
+        return True
+    if hashtags.get("operation") == "and":
+        return include <= tags
+    return bool(include & tags)
+
+
+def _list_tokens(subject):
+    tokens = set()
+    for key in ("list_id", "list_name"):
+        value = subject.get(key)
+        if value:
+            tokens.add(str(value).casefold())
+    return tokens
+
+
+def _match_lists_filter(value, subject):
+    include = [str(item).casefold() for item in value.get("include") or []]
+    exclude = [str(item).casefold() for item in value.get("exclude") or []]
+    tokens = _list_tokens(subject)
+    if exclude and any(item in tokens for item in exclude):
+        return False
+    if not include:
+        return True
+    hits = [item in tokens for item in include]
+    if value.get("operation") == "and":
+        return all(hits)
+    return any(hits)

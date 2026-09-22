@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Smart list show
+
+- Sectioned custom smart lists now intersect persisted section memberships with the live filter blob, so stale Next/manual-order members that Reminders.app already hides no longer appear in `remctl show`.
+- Sectioned subtasks that belong to a smart-list section are included in `show` output instead of being dropped by the old top-level-only load.
+
 ## 1.7.0 — 2026-08-13
 
 This release adds verified reminder ordering, makes every destructive command safe in non-interactive workflows, and hardens private ReminderKit behavior across Tahoe and Golden Gate.

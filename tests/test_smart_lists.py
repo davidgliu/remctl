@@ -3,12 +3,15 @@ from __future__ import annotations
 import json
 import plistlib
 import unittest
+from datetime import datetime
 
+import helpers  # noqa: F401  inserts repo root on sys.path
 from remctl_smart_lists import (
     SmartListFilterError,
     build_supported_filter_payload,
     decode_smart_list_filter_blob,
     encode_supported_filter_payload,
+    reminder_matches_smart_list_filter,
 )
 
 
@@ -191,6 +194,97 @@ class SmartListFilterTests(unittest.TestCase):
         self.assertEqual(decoded["payload"], {"date": {"onDate": "not-a-date"}})
         self.assertIsNotNone(decoded["summary"])
         self.assertIn("not-a-date", decoded["summary"]["description"])
+
+
+class SmartListFilterMatchTests(unittest.TestCase):
+    now = datetime(2026, 9, 22, 15, 0, 0)
+
+    def _subject(self, **overrides):
+        subject = {
+            "flagged": False,
+            "priority": 0,
+            "due": None,
+            "all_day": False,
+            "tags": [],
+            "list_id": "LIST-WORK",
+            "list_name": "Work",
+        }
+        subject.update(overrides)
+        return subject
+
+    def test_today_or_flagged_drops_stale_and_keeps_past_due(self):
+        payload = {"operation": "or", "date": {"today": True}, "flagged": True}
+
+        self.assertFalse(
+            reminder_matches_smart_list_filter(payload, self._subject(), now=self.now)
+        )
+        self.assertTrue(
+            reminder_matches_smart_list_filter(
+                payload, self._subject(flagged=True), now=self.now
+            )
+        )
+        self.assertTrue(
+            reminder_matches_smart_list_filter(
+                payload,
+                self._subject(due=datetime(2026, 9, 22, 9, 0, 0)),
+                now=self.now,
+            )
+        )
+        self.assertTrue(
+            reminder_matches_smart_list_filter(
+                payload,
+                self._subject(due=datetime(2026, 9, 20, 9, 0, 0)),
+                now=self.now,
+            )
+        )
+        self.assertFalse(
+            reminder_matches_smart_list_filter(
+                payload,
+                self._subject(due=datetime(2026, 9, 23, 9, 0, 0)),
+                now=self.now,
+            )
+        )
+
+    def test_today_without_past_due_rejects_yesterday(self):
+        payload = {"date": {"today": False}}
+        self.assertFalse(
+            reminder_matches_smart_list_filter(
+                payload,
+                self._subject(due=datetime(2026, 9, 21, 9, 0, 0)),
+                now=self.now,
+            )
+        )
+
+    def test_priority_and_tag_include_filters(self):
+        self.assertTrue(
+            reminder_matches_smart_list_filter(
+                {"priorities": ["high"]},
+                self._subject(priority=1),
+                now=self.now,
+            )
+        )
+        self.assertFalse(
+            reminder_matches_smart_list_filter(
+                {"priorities": ["high"]},
+                self._subject(priority=9),
+                now=self.now,
+            )
+        )
+        tag_payload = {
+            "hashtags": {
+                "hashtags": {"operation": "or", "include": ["remctl"], "exclude": []}
+            }
+        }
+        self.assertTrue(
+            reminder_matches_smart_list_filter(
+                tag_payload, self._subject(tags=["#remctl"]), now=self.now
+            )
+        )
+        self.assertFalse(
+            reminder_matches_smart_list_filter(
+                tag_payload, self._subject(tags=["other"]), now=self.now
+            )
+        )
 
 
 if __name__ == "__main__":
