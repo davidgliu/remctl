@@ -28,7 +28,7 @@ remctl-permissions (Swift/AppKit)
   └─ guides Full Disk Access setup with draggable targets
 ```
 
-There is no daemon, localhost API, launch agent, or token setup in RemCTL. The CLI is the only runtime surface.
+There is no RemCTL daemon, localhost API, or token setup. The CLI is the only runtime. An optional LaunchAgent (`remctl reset-daily-install`) can invoke `remctl reset-daily` once a day at 03:00 local; that job starts, writes through EventKit, and exits. It does not keep the Reminders store open.
 
 ## Reads
 

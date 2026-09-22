@@ -69,17 +69,18 @@ The uninstaller checks `~/bin` and `~/.local/bin` by default, or the single targ
 
 | Task | Commands |
 | --- | --- |
-| See what is due | `today`, `upcoming`, `overdue` |
+| See what is due | `today`, `upcoming`, `overdue`, `reset-daily` |
 | Browse reminders | `lists`, `groups`, `group-info`, `smart-lists`, `templates`, `template-info`, `show`, `search`, `flagged`, `urgent`, `info`, `subtasks`, `sharees` |
 | Create and edit | `add`, `edit`, `reminder-move`, `done`, `undone`, `delete`, `flag`, `unflag` |
 | Organize | `list-symbols`, `list-create`, `list-edit`, `list-pin`, `list-unpin`, `list-rename`, `list-delete`, `section-create`, `section-rename`, `section-delete`, `group-create`, `group-edit`, `group-delete`, `smart-list-create`, `smart-list-edit`, `smart-list-delete`, `template-create`, `template-apply`, `template-delete`, `sections`, `tags` |
 | Share data | `export`, `import`, `link`, `open`, `--json`, `--format table` on tabular read commands |
-| Set up the Mac | `onboard`, `permissions`, `doctor`, `setup`, `completion` |
+| Set up the Mac | `onboard`, `permissions`, `doctor`, `setup`, `completion`, `reset-daily-install`, `reset-daily-uninstall` |
 
 Common examples:
 
 ```bash
 remctl today
+remctl reset-daily
 remctl groups
 remctl show Work --format table
 remctl show --list-id 153 --json

@@ -6,7 +6,7 @@ attachments, completion status, list colors). Writes via remctl-bridge (EventKit
 with AppleScript fallback. Zero Python dependencies with small shared helpers.
 """
 
-import argparse, base64, csv, hashlib, html as html_lib, io, json, os, platform, plistlib, re, shlex, shutil, sqlite3, subprocess, sys, tempfile, time, unicodedata, uuid
+import argparse, base64, contextlib, csv, hashlib, html as html_lib, io, json, os, platform, plistlib, re, shlex, shutil, sqlite3, subprocess, sys, tempfile, time, unicodedata, uuid
 
 CLI_NAME = os.path.basename(sys.argv[0])
 from datetime import datetime, timedelta
@@ -2880,6 +2880,125 @@ def q_overdue(db):
         f"AND l.Z_PK IS NOT NULL AND {due_column} IS NOT NULL "
         f"AND {due_column} < {to_ts(sod)} ORDER BY {due_column}"
     ).fetchall()
+
+
+RESET_DAILY_LAUNCHD_LABEL = "com.remctl.reset-daily"
+RESET_DAILY_PLIST_NAME = f"{RESET_DAILY_LAUNCHD_LABEL}.plist"
+
+
+def is_daily_repeat(row):
+    """True for a once-per-day EventKit rule (frequency daily, interval 1)."""
+    recurrence = recurrence_from_row(row)
+    if not recurrence:
+        return False
+    return recurrence["frequency"] == "daily" and recurrence.get("interval", 1) == 1
+
+
+def q_overdue_daily(db):
+    """Incomplete, not-deleted overdue reminders whose repeat is daily."""
+    return [row for row in q_overdue(db) if is_daily_repeat(row)]
+
+
+def due_spec_for_local_today(row, now=None):
+    """Due string for `edit -d` that lands on the local calendar day.
+
+    All-day rows stay all-day (`YYYY-MM-DD`). Timed rows keep hour and minute.
+    """
+    current = now or datetime.now()
+    day = current.strftime("%Y-%m-%d")
+    if _item_is_all_day(row):
+        return day
+    due = ts(row_effective_due(row))
+    if due is None:
+        return day
+    return f"{day} {due.hour:02d}:{due.minute:02d}"
+
+
+def edit_due_args(reminder_id, due_spec, json_mode=True):
+    return SimpleNamespace(
+        id=int(reminder_id),
+        json=bool(json_mode),
+        title=None,
+        notes=None,
+        priority=None,
+        due=due_spec,
+        url=None,
+        recurrence=None,
+        alarm=None,
+        list=None,
+        list_id=None,
+    )
+
+
+def apply_reset_daily_due(row, due_spec):
+    """Set due via the normal edit/bridge path; never writes SQLite."""
+    args = edit_due_args(row["Z_PK"], due_spec, json_mode=True)
+    stdout, stderr = io.StringIO(), io.StringIO()
+    try:
+        with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+            cmd_edit(args)
+    except SystemExit as exc:
+        message = stderr.getvalue().strip() or f"edit failed (exit {exc.code})"
+        return {
+            "id": row["Z_PK"],
+            "title": row["ZTITLE"],
+            "status": "error",
+            "due": due_spec,
+            "message": message,
+        }
+    return {
+        "id": row["Z_PK"],
+        "title": row["ZTITLE"],
+        "status": "updated",
+        "due": due_spec,
+    }
+
+
+def installed_cli_path():
+    argv0 = Path(sys.argv[0]).expanduser()
+    if argv0.exists():
+        return argv0.resolve()
+    discovered = shutil.which("remctl")
+    if discovered:
+        return Path(discovered).resolve()
+    return (Path.home() / ".local" / "bin" / "remctl").resolve()
+
+
+def reset_daily_plist_path():
+    return Path.home() / "Library" / "LaunchAgents" / RESET_DAILY_PLIST_NAME
+
+
+def reset_daily_launchd_plist(program=None):
+    remctl_path = str(Path(program) if program else installed_cli_path())
+    bin_dir = str(Path(remctl_path).parent)
+    log_dir = CONFIG_DIR / "logs"
+    return {
+        "Label": RESET_DAILY_LAUNCHD_LABEL,
+        "ProgramArguments": [remctl_path, "reset-daily", "--json"],
+        "StartCalendarInterval": {"Hour": 3, "Minute": 0},
+        "RunAtLoad": False,
+        "StandardOutPath": str(log_dir / "reset-daily.out.log"),
+        "StandardErrorPath": str(log_dir / "reset-daily.err.log"),
+        "EnvironmentVariables": {
+            "PATH": f"{bin_dir}:/usr/bin:/bin:/usr/sbin:/sbin",
+        },
+    }
+
+
+def launchctl_gui_target():
+    return f"gui/{os.getuid()}/{RESET_DAILY_LAUNCHD_LABEL}"
+
+
+def launchctl_run(args):
+    launchctl = shutil.which("launchctl")
+    if not launchctl:
+        return None
+    return subprocess.run(
+        [launchctl, *args],
+        capture_output=True,
+        text=True,
+    )
+
 
 # ── Format ───────────────────────────────────────────────────────────────────
 
@@ -10157,6 +10276,131 @@ def cmd_overdue(a):
         print(fmt(i, db, verbose=getattr(a, 'verbose', False), indent="  ", _sc=sc, _ht=ht, _img=img, _ind=ind))
     print(f"\n{len(items)} overdue")
 
+
+def cmd_reset_daily(a):
+    """Bump overdue daily-repeat reminders to the local calendar day."""
+    db = open_db()
+    items = q_overdue_daily(db)
+    now = datetime.now()
+    today = now.strftime("%Y-%m-%d")
+    results = []
+    for row in items:
+        results.append(apply_reset_daily_due(row, due_spec_for_local_today(row, now=now)))
+    updated = [item for item in results if item["status"] == "updated"]
+    errors = [item for item in results if item["status"] == "error"]
+    payload = {
+        "status": "ok" if not errors else "partial",
+        "matched": len(items),
+        "updated": len(updated),
+        "errors": len(errors),
+        "dueDate": today,
+        "reminders": results,
+    }
+    if getattr(a, "json", False):
+        print(json.dumps(payload, indent=2))
+    elif not items:
+        print("No overdue daily reminders")
+    else:
+        print(f"Reset {len(updated)} overdue daily reminder(s) to {today}:")
+        for item in updated:
+            print(f"  #{item['id']} {safe_display(item['title'])}")
+        if errors:
+            print(f"Failed ({len(errors)}):")
+            for item in errors:
+                print(f"  #{item['id']} {safe_display(item['title'])}: {item.get('message', 'error')}")
+    if errors:
+        sys.exit(1)
+
+
+def cmd_reset_daily_install(a):
+    """Write a 3:00 AM LaunchAgent that runs `remctl reset-daily`."""
+    program = installed_cli_path()
+    if not program.exists():
+        print(f"Error: remctl binary not found at {program}", file=sys.stderr)
+        sys.exit(1)
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    (CONFIG_DIR / "logs").mkdir(parents=True, exist_ok=True)
+    plist_path = reset_daily_plist_path()
+    plist_path.parent.mkdir(parents=True, exist_ok=True)
+    plist = reset_daily_launchd_plist(program)
+    with open(plist_path, "wb") as handle:
+        plistlib.dump(plist, handle)
+    loaded = False
+    load_error = None
+    if shutil.which("launchctl"):
+        domain = f"gui/{os.getuid()}"
+        launchctl_run(["bootout", launchctl_gui_target()])
+        result = launchctl_run(["bootstrap", domain, str(plist_path)])
+        if result is None or result.returncode != 0:
+            fallback = launchctl_run(["load", "-w", str(plist_path)])
+            if fallback is not None and fallback.returncode == 0:
+                loaded = True
+            else:
+                err = (result.stderr if result else "") or (fallback.stderr if fallback else "")
+                load_error = (err or "launchctl failed").strip()
+        else:
+            loaded = True
+    else:
+        load_error = "launchctl not found (install the plist on macOS)"
+    payload = {
+        "status": "installed" if loaded or shutil.which("launchctl") is None else "error",
+        "label": RESET_DAILY_LAUNCHD_LABEL,
+        "plist": str(plist_path),
+        "program": str(program),
+        "hour": 3,
+        "minute": 0,
+        "loaded": loaded,
+        "command": [str(program), "reset-daily", "--json"],
+    }
+    if load_error:
+        payload["loadError"] = load_error
+    if getattr(a, "json", False):
+        print(json.dumps(payload, indent=2))
+    else:
+        print(f"Wrote {plist_path}")
+        print("Schedule: every day at 03:00 local time")
+        print(f"Runs: {program} reset-daily --json")
+        if loaded:
+            print(f"Loaded: {RESET_DAILY_LAUNCHD_LABEL}")
+        elif load_error:
+            print(f"launchctl: {load_error}", file=sys.stderr)
+            print(f"Load later: launchctl bootstrap gui/$(id -u) {plist_path}")
+    if shutil.which("launchctl") and not loaded:
+        sys.exit(1)
+
+
+def cmd_reset_daily_uninstall(a):
+    plist_path = reset_daily_plist_path()
+    unloaded = False
+    if shutil.which("launchctl"):
+        result = launchctl_run(["bootout", launchctl_gui_target()])
+        if result is not None and result.returncode == 0:
+            unloaded = True
+        else:
+            fallback = launchctl_run(["unload", "-w", str(plist_path)])
+            unloaded = bool(fallback and fallback.returncode == 0)
+    removed = False
+    if plist_path.exists():
+        plist_path.unlink()
+        removed = True
+    payload = {
+        "status": "uninstalled",
+        "label": RESET_DAILY_LAUNCHD_LABEL,
+        "plist": str(plist_path),
+        "unloaded": unloaded,
+        "removed": removed,
+    }
+    if getattr(a, "json", False):
+        print(json.dumps(payload, indent=2))
+    else:
+        if removed:
+            print(f"Removed {plist_path}")
+        else:
+            print(f"No plist at {plist_path}")
+        if unloaded:
+            print(f"Unloaded {RESET_DAILY_LAUNCHD_LABEL}")
+
+
 def cmd_list_create(a):
     validate_list_appearance_args(a)
     group_target_requested = bool(getattr(a, "group", None)) or getattr(a, "group_id", None) is not None
@@ -10703,6 +10947,9 @@ _remctl() {
         'today:Due today + overdue'
         'upcoming:Next N days'
         'overdue:All overdue reminders'
+        'reset-daily:Set overdue daily repeats to today'
+        'reset-daily-install:Install the 3am reset-daily LaunchAgent'
+        'reset-daily-uninstall:Remove the reset-daily LaunchAgent'
         'flagged:Flagged reminders'
         'urgent:Urgent reminders'
         'flag:Flag a reminder'
@@ -10781,6 +11028,11 @@ _remctl() {
                 '--images[Render image attachments inline]' \
                 '--image-mode[Image rendering protocol]:mode:(kitty iterm2 halfblock none)' \
                 '--image-width[Image render width in cells]:width:' \
+                '--json[JSON output]'
+            return
+            ;;
+        reset-daily|reset-daily-install|reset-daily-uninstall)
+            _arguments \
                 '--json[JSON output]'
             return
             ;;
@@ -11164,7 +11416,7 @@ BASH_COMPLETION = '''_remctl() {
     local cur prev commands
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
-    commands="lists groups group-info group-create group-edit group-delete smart-lists templates template-info show add done undone edit reminder-move delete search today upcoming overdue flagged urgent flag unflag tags subtasks info sections section-create section-rename section-delete sharees stats link open export import list-symbols list-create smart-list-create smart-list-edit smart-list-delete template-create template-apply template-delete list-edit list-pin list-unpin list-rename list-delete onboard doctor setup permissions completion"
+    commands="lists groups group-info group-create group-edit group-delete smart-lists templates template-info show add done undone edit reminder-move delete search today upcoming overdue reset-daily reset-daily-install reset-daily-uninstall flagged urgent flag unflag tags subtasks info sections section-create section-rename section-delete sharees stats link open export import list-symbols list-create smart-list-create smart-list-edit smart-list-delete template-create template-apply template-delete list-edit list-pin list-unpin list-rename list-delete onboard doctor setup permissions completion"
 
     local cmd="${COMP_WORDS[1]}"
     if [ "$cmd" = "add" ]; then
@@ -11193,6 +11445,9 @@ BASH_COMPLETION = '''_remctl() {
         return
     elif [ "$cmd" = "upcoming" ]; then
         COMPREPLY=( $(compgen -W "--via-eventkit --verbose -v --json" -- "$cur") )
+        return
+    elif [ "$cmd" = "reset-daily" ] || [ "$cmd" = "reset-daily-install" ] || [ "$cmd" = "reset-daily-uninstall" ]; then
+        COMPREPLY=( $(compgen -W "--json" -- "$cur") )
         return
     elif [ "$cmd" = "link" ]; then
         COMPREPLY=( $(compgen -W "--list -l --list-id --completed --json" -- "$cur") )
@@ -11296,6 +11551,9 @@ complete -c remctl -n "__fish_use_subcommand" -a search -d "Search reminders"
 complete -c remctl -n "__fish_use_subcommand" -a today -d "Due today + overdue"
 complete -c remctl -n "__fish_use_subcommand" -a upcoming -d "Next N days"
 complete -c remctl -n "__fish_use_subcommand" -a overdue -d "All overdue reminders"
+complete -c remctl -n "__fish_use_subcommand" -a reset-daily -d "Set overdue daily repeats to today"
+complete -c remctl -n "__fish_use_subcommand" -a reset-daily-install -d "Install the 3am reset-daily LaunchAgent"
+complete -c remctl -n "__fish_use_subcommand" -a reset-daily-uninstall -d "Remove the reset-daily LaunchAgent"
 complete -c remctl -n "__fish_use_subcommand" -a flagged -d "Flagged reminders"
 complete -c remctl -n "__fish_use_subcommand" -a urgent -d "Urgent reminders"
 complete -c remctl -n "__fish_use_subcommand" -a flag -d "Flag a reminder"
@@ -11343,6 +11601,7 @@ complete -c remctl -n "__fish_seen_subcommand_from search" -l completed -d "Incl
 complete -c remctl -n "__fish_seen_subcommand_from search today upcoming" -l via-eventkit -d "Limited read-only EventKit fallback; no numeric ids or private metadata"
 complete -c remctl -n "__fish_seen_subcommand_from search today upcoming" -s v -l verbose -d "Verbose output"
 complete -c remctl -n "__fish_seen_subcommand_from today" -l no-overdue -d "Exclude overdue reminders"
+complete -c remctl -n "__fish_seen_subcommand_from reset-daily reset-daily-install reset-daily-uninstall" -l json -d "JSON output"
 complete -c remctl -n "__fish_seen_subcommand_from done" -l date -d "Set completion date" -r
 complete -c remctl -n "__fish_seen_subcommand_from done" -l json -d "JSON output"
 complete -c remctl -n "__fish_seen_subcommand_from reminder-move" -l before -d "Place before reminder ID" -r
@@ -12753,6 +13012,48 @@ def build_parser():
 
     c = sub.add_parser("overdue", help="Show all overdue reminders"); vb(c); js(c); display_format(c); img(c)
 
+    c = sub.add_parser(
+        "reset-daily",
+        help="Set overdue daily-repeat reminders to today",
+        description=(
+            "Find incomplete reminders whose recurrence is daily (EventKit frequency daily, "
+            "interval 1) and whose due date is overdue relative to local start-of-day. "
+            "Set each due date to today through the normal remctl edit/bridge path. "
+            "All-day items stay all-day; timed items keep their clock time."
+        ),
+        epilog=(
+            "Examples:\n"
+            "  remctl reset-daily\n"
+            "  remctl reset-daily --json\n"
+            "  remctl reset-daily-install\n"
+            "  remctl reset-daily-uninstall\n"
+            "\n"
+            "Does not write the Reminders SQLite store. Completed and deleted reminders are skipped. "
+            "Every-N-days rules (daily x2 and higher) are left unchanged. "
+            "Optional schedule: remctl reset-daily-install registers a LaunchAgent at 03:00 local."
+        ),
+        formatter_class=HelpFormatter,
+    )
+    js(c)
+
+    c = sub.add_parser(
+        "reset-daily-install",
+        help="Install a 3:00 AM LaunchAgent for reset-daily",
+        description=(
+            "Write ~/Library/LaunchAgents/com.remctl.reset-daily.plist and load it. "
+            "The job runs the installed remctl binary as `reset-daily --json` at 03:00 local time."
+        ),
+        formatter_class=HelpFormatter,
+    )
+    js(c)
+
+    c = sub.add_parser(
+        "reset-daily-uninstall",
+        help="Unload and remove the reset-daily LaunchAgent",
+        formatter_class=HelpFormatter,
+    )
+    js(c)
+
     c = sub.add_parser("list-symbols", help="List official Reminders list symbols")
     c.add_argument("--html", nargs="?", const="", metavar="PATH", help="Write a standalone HTML preview contact sheet")
     c.add_argument("--preview", action="store_true", help="Generate and open the HTML preview contact sheet")
@@ -13183,6 +13484,9 @@ def main():
         "unflag": cmd_unflag,
         "upcoming": cmd_upcoming,
         "overdue": cmd_overdue,
+        "reset-daily": cmd_reset_daily,
+        "reset-daily-install": cmd_reset_daily_install,
+        "reset-daily-uninstall": cmd_reset_daily_uninstall,
         "list-symbols": cmd_list_symbols,
         "list-create": cmd_list_create,
         "smart-list-create": cmd_smart_list_create,

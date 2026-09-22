@@ -9,6 +9,10 @@ remctl today
 remctl upcoming
 remctl upcoming 14
 remctl overdue
+remctl reset-daily
+remctl reset-daily --json
+remctl reset-daily-install
+remctl reset-daily-uninstall
 remctl flagged
 remctl urgent
 remctl lists
@@ -147,6 +151,10 @@ Treat `eventKitId` as display/readback data only. Never pass it to `info`, `edit
 Date-only `add -d` inputs create all-day reminders instead of midnight timed reminders. This applies to forms such as `today`, `tomorrow`, `2026-06-01`, `+3d`, `in 2 weeks`, and `next friday`, and to natural-language date-only inputs parsed by `parsedatetime` such as `March 30` or `next week`; only inputs that resolve to a specific clock time remain timed reminders.
 
 `upcoming DAYS` accepts 1 through 3650 days. Zero and negative ranges fail before RemCTL opens the Reminders database.
+
+`reset-daily` finds incomplete reminders whose recurrence is EventKit **daily** with interval 1 (the normal “repeats daily” rule, not `daily x2`) and whose due date is overdue by the same local start-of-day window as `overdue`. It sets each due date to today through the existing `edit`/EventKit path: all-day items stay all-day; timed items keep hour and minute. Completed and deleted reminders are skipped. `--json` reports `matched`, `updated`, `errors`, and per-reminder `id`/`title`/`due`.
+
+Schedule it on macOS with `remctl reset-daily-install` (LaunchAgent at 03:00 local). That job runs `remctl reset-daily --json` and exits; it is not a RemCTL daemon. Unload with `remctl reset-daily-uninstall`. Manual plist steps are in [installation.md](installation.md).
 
 List targets are consistent across commands that can safely resolve them: pass a list name positionally or with `-l/--list`, or pass `--list-id` when an exact numeric target matters. If both a name and `--list-id` are provided, RemCTL fails before writing or exporting. This applies to `show`, `add`, `edit`, `link`, `export`, `section-create`, `section-rename`, `section-delete`, `list-edit`, `list-pin`, `list-unpin`, `list-rename`, `list-delete`, and the smart-list `--include-list-id` filter. For pinning, `list-pin` and `list-unpin` also accept smart-list names or `--smart-list-id`; if a name matches both a regular list and a smart list, RemCTL fails before writing and asks for an explicit ID.
 

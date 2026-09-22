@@ -188,3 +188,44 @@ clang -fobjc-arc -O -F/System/Library/PrivateFrameworks -framework Foundation -f
 ~/bin/remctl permissions full-disk-access
 ~/bin/remctl doctor
 ```
+
+## Optional daily reset (launchd)
+
+`reset-daily` bumps overdue daily-repeat reminders to today. To run it every day at **3:00 AM local**:
+
+```bash
+remctl reset-daily-install
+```
+
+That writes `~/Library/LaunchAgents/com.remctl.reset-daily.plist` (ProgramArguments point at the installed `remctl` binary plus `reset-daily --json`), creates `~/.config/remctl/logs/`, and loads the agent. Logs land in `~/.config/remctl/logs/reset-daily.{out,err}.log`.
+
+Remove it:
+
+```bash
+remctl reset-daily-uninstall
+```
+
+Manual equivalent if you prefer not to use the helper (replace `HOME` and the remctl path):
+
+```bash
+mkdir -p "$HOME/Library/LaunchAgents" "$HOME/.config/remctl/logs"
+cp contrib/launchd/com.remctl.reset-daily.plist "$HOME/Library/LaunchAgents/com.remctl.reset-daily.plist"
+# edit ProgramArguments[0] to the installed remctl path, e.g. $HOME/.local/bin/remctl
+launchctl bootstrap "gui/$(id -u)" "$HOME/Library/LaunchAgents/com.remctl.reset-daily.plist"
+```
+
+Unload:
+
+```bash
+launchctl bootout "gui/$(id -u)/com.remctl.reset-daily"
+rm -f "$HOME/Library/LaunchAgents/com.remctl.reset-daily.plist"
+```
+
+Older macOS that still uses `load`/`unload`:
+
+```bash
+launchctl load -w "$HOME/Library/LaunchAgents/com.remctl.reset-daily.plist"
+launchctl unload -w "$HOME/Library/LaunchAgents/com.remctl.reset-daily.plist"
+```
+
+The LaunchAgent needs the same Full Disk Access and Reminders permission as an interactive `remctl` run. Grant FDA to the interpreter that the installed `remctl` shebang uses, then confirm with `remctl reset-daily --json` in Terminal before relying on the 3am job. `./uninstall.sh` does not remove this LaunchAgent; run `reset-daily-uninstall` first.

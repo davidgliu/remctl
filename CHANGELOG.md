@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **`reset-daily`.** Sets overdue daily-repeat reminders to today through the normal `edit`/EventKit write path. Matches EventKit frequency `daily` with interval 1; skips completed, deleted, weekly/monthly/yearly, and `daily xN` rules. All-day items stay all-day; timed items keep their clock time. `--json` prints matched/updated ids. Optional `reset-daily-install` / `reset-daily-uninstall` register a LaunchAgent at 03:00 local that runs `remctl reset-daily --json` once per day (no long-lived daemon, no SQLite writes).
+
 - **Faster read-path startup.** The installed `remctl` command is now a thin wrapper that imports `remctl_main.py`, so Python can bytecode-cache the CLI body after the first run (`install.sh` copies both files). Chosen Reminders store path is cached under the config directory and skipped when sqlite/WAL/SHM mtime, size, and the candidate set still match. Recurrence columns in reminder queries use one `LEFT JOIN` instead of ~10 correlated subqueries. Behavior is unchanged; Apple's store is still opened `mode=ro` and closed at process end.
 
 ## 1.7.0 — 2026-08-13

@@ -5,7 +5,7 @@ description: Use when an agent needs to read, create, edit, complete, inspect, o
 
 # RemCTL
 
-RemCTL is a power-user Apple Reminders CLI. It reads the local Reminders CoreData database for fast, detailed output and writes normally through `remctl-bridge` using EventKit; the real flagged state is the one exception and is written through AppleScript. Unsupported private metadata writes are available only when explicitly requested with `--private`; those go through `remctl-private` and Apple's private ReminderKit APIs. It is CLI-only: there is no local API server, token, launch agent, or service command.
+RemCTL is a power-user Apple Reminders CLI. It reads the local Reminders CoreData database for fast, detailed output and writes normally through `remctl-bridge` using EventKit; the real flagged state is the one exception and is written through AppleScript. Unsupported private metadata writes are available only when explicitly requested with `--private`; those go through `remctl-private` and Apple's private ReminderKit APIs. It is CLI-only: there is no local API server or token. An optional LaunchAgent can call `remctl reset-daily` once a day; RemCTL itself does not keep a daemon or SQLite connection open.
 
 The installed command can be invoked as `remctl`, `rctl`, or `reminders`; all three names behave identically and produce the same output.
 
@@ -25,6 +25,7 @@ Start by deciding the write path. Public EventKit writes are stable and do not n
 | User intent | Command path | Private? | Verify with |
 | --- | --- | --- | --- |
 | Read due items, lists, groups, reminders, tags, sections, subtasks | `today`, `upcoming`, `overdue`, `lists`, `groups`, `group-info`, `show`, `search`, `info`, `tags`, `sections`, `subtasks` | No | same command with `--json` |
+| Bump overdue daily repeats to today | `reset-daily` | No | `reset-daily --json` then `overdue --json` / `today --json` |
 | Create/edit ordinary reminder fields | `add`, `edit`, `done`, `undone`, `delete` | No | `info <id> --json` or `show <list> --json` |
 | Due date, priority, notes, recurrence, EventKit alarm | `add` or `edit` with `-d`, `-p`, `-n`, `--recurrence`, `--alarm` | No | `info <id> --json`; recurrence appears as `recurrence` |
 | Move an existing reminder to another list | `edit <id> -l LIST` or `edit <id> --list-id ID` | No | Use the returned `id`; clone-delete fallback may return a new ID plus `oldId` |
@@ -76,6 +77,7 @@ High-value guardrails:
 remctl today --json
 remctl upcoming 7 --json
 remctl overdue --json
+remctl reset-daily --json
 remctl lists --json
 remctl groups --json
 remctl group-info Writing --json
