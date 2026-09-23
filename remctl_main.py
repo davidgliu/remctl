@@ -8745,12 +8745,17 @@ def cmd_show_smart_list(a, db, smart_ref):
     secs = q_smart_list_sections(db, smart_ref["id"])
     memberships = q_smart_list_section_memberships(db, smart_ref["id"]) if secs else {}
     identifiers = q_smart_list_persisted_reminder_ids(db, smart_ref)
-    items = q_reminders_by_identifiers(db, identifiers, completed=a.completed, top_level=True)
-    list_name = smart_ref["title"]
+    items = q_reminders_by_identifiers(db, identifiers, completed=a.completed, top_level=False)
     pks = [item["Z_PK"] for item in items]
     sc, ht = preload_extras(db, pks)
+    if secs:
+        items = filter_sectioned_smart_list_items(db, items, smart_ref, hashtags_by_pk=ht)
+        pks = [item["Z_PK"] for item in items]
+        sc = {pk: sc[pk] for pk in pks if pk in sc}
+        ht = {pk: ht[pk] for pk in pks if pk in ht}
     att = preload_attachments(db, pks)
     ind = preload_indicators(db, pks)
+    list_name = smart_ref["title"]
     if a.json:
         payload = [
             to_dict(item, db, section=memberships.get(item["ZCKIDENTIFIER"]), _sc=sc, _ht=ht, _att=att)
