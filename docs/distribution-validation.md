@@ -41,13 +41,13 @@ September 30, 2026. Local branch: `codex/remctl-distribution`. No push, main upd
 | Free source build with only Apple tools on PATH | Passed with Apple Python 3.9.6 and no Homebrew or separately installed Python |
 | Existing runtime reused without elevation | Passed for local and Developer ID builds; missing runtime returns 77, damaged runtime returns 65 |
 
-Simulation uses temporary prefixes and does not install a live LaunchAgent or grant permissions. The protected runtime and broker rows above are separate live checks. Actual permission continuity remains pending; signature continuity alone does not prove it.
+Simulation uses temporary prefixes and does not install a live LaunchAgent or grant permissions. The protected runtime and broker rows above are separate live checks. The free-build permission continuity row is backed by live checks before and after a changed signed app was installed; signature continuity alone is not treated as proof.
 
 Final source build: `dist/source-system-python/RemCTL Capability Host.app`. Built by the actual `--from-source` command with only `/usr/bin:/bin:/usr/sbin:/sbin` on PATH and the normal persistent key directory, whose directory/files were verified as owner-only. This was a dry run; that newly built runtime generation has not been installed. Earlier free-build protected runtime and live broker checks are listed separately above. Packaged UI, plugin configuration, icon, installers and license notices match the checked-in inputs. `--bootstrap` starts guided onboarding after installation when run in an interactive Terminal; redirected and test runs remain noninteractive.
 
 ## Remaining release gates
 
-- Finish Full Disk Access and its persistence check for the local certificate build. Reminders grant persistence and a real read have passed after the app's code hash changed.
+- Free-build Full Disk Access, Reminders and Automation persistence passed across an installed update with a changed code hash. A protected-store read passed before and after the update without a new prompt.
 - Signed release live permission checks passed: all three grants, a protected-store read, and the visible ChatGPT workspace refresh. Both protected runtimes are installed and verified.
 - Validate the Intel artifact and the advertised minimum macOS version on appropriate systems. Cross compilation alone is insufficient.
 - Final local app matches the coordinated desktop UI: HTML SHA-256 `06e2d56c86bc7fa750579b5ebafdc799cf1e444f2de103cebd95900f37b0b50f`, imported from the desktop plugin thread and fingerprint recomputed for this branch. That thread independently verified the live UI. Packaged HTML, plugin fingerprint, icon and installer byte parity passed in this branch.
@@ -89,4 +89,15 @@ During permission refresh, turning off the old grant caused the existing workspa
 
 Federico subsequently approved live replacement. The previous app, client directory and LaunchAgent were saved in `dist/pre-release-install-backup`. The notarized build was installed successfully, then updated under the same Developer ID to the final `release-final` artifact. Both transactions restarted the existing MCP HTTP endpoint and passed its health check; both reused verified protected Python without elevation. The installed app passes strict signature and Gatekeeper checks, reports version 2.0.0, and matches the checked-in installer, UI and icon bytes. The final host distinguishes invalid runtime data from missing-runtime authorization (exit 65 versus 77). After this change, all 19 installer lifecycle tests, 5 installer diagnostics tests and 9 distribution tests passed.
 
-The installed Developer ID host now has all three permissions. After Federico unlocked System Settings, the obsolete Full Disk Access entry was removed and the exact installed app was added. Restarting its LaunchAgent produced `doctor --for-agent` with `ok: true`, zero failures and effective access ready. A real protected-store `today --json` read succeeded. The visible ChatGPT workspace completed Refresh with the button enabled again and the database-access error absent. This verifies the final notarized installation, not just the earlier recovery of the old host. No other test host remains running. Free-build Full Disk Access continuity and Intel/minimum-macOS acceptance remain unverified as listed above.
+The installed Developer ID host now has all three permissions. After Federico unlocked System Settings, the obsolete Full Disk Access entry was removed and the exact installed app was added. Restarting its LaunchAgent produced `doctor --for-agent` with `ok: true`, zero failures and effective access ready. A real protected-store `today --json` read succeeded. The visible ChatGPT workspace completed Refresh with the button enabled again and the database-access error absent. This verifies the final notarized installation, not just the earlier recovery of the old host. No other test host remains running. Intel/minimum-macOS acceptance remains unverified as listed above; the subsequent free-build check below completed its permission-continuity gate.
+
+## Free-build permission continuity completed
+
+The free build was installed at the normal app path with the existing protected runtime. After its initial macOS grants, `doctor --for-agent` reported all three permissions authorized and a real protected-store `today --json` read returned 12 items. The app was then updated with the transactional installer, using the same local certificate and a changed build number/code hash. All three permissions remained authorized and another protected-store read returned 12 items, without requesting any new permission.
+
+- Local signing certificate: `CA5B3C8F2DDA499D8DFD35B004266CF94720C368`.
+- Original code hash: `8f543c49bd0adcd7eb237b3fe75cb5c50b104366`.
+- Updated code hash: `96a5e2b290fa049cd9233c867b8379418b558205`.
+- Evidence: `docs/distribution-permission-continuity.json`.
+
+This verifies ordinary updates within the free-build identity. Switching between that certificate and Developer ID is a deliberate identity migration and needs new grants. The installer refuses an unrequested identity change. Following this test, the original final notarized app was restored; its Full Disk Access grant was restored, while the native Reminders restoration prompt was still pending when this evidence was recorded.
