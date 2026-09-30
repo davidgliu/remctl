@@ -33,6 +33,8 @@ September 30, 2026. Local branch: `codex/remctl-distribution`. No push, main upd
 | Protected free-build Python installation | Passed: manifest bytes, root ownership and non-writable modes verified |
 | Actual packaged shell launcher | Passed: protected Python starts the CLI and reports 2.0.0 |
 | Free-build persistent sealed broker | Passed: repeated live status requests, with missing permissions reported correctly |
+| Free-build Reminders permission across an app update | Passed: changed code hash, identical local certificate, authorized state and real sealed EventKit read without another prompt |
+| Signed-release protected runtime and broker | Passed: manifest bytes/root ownership, packaged CLI and live sealed broker |
 | Developer ID app and DMG notarization | Accepted; both tickets stapled and validated |
 | Gatekeeper execution and disk-image opening | Both accepted as Notarized Developer ID |
 | Notarized payload installation | Default signature policy passed; isolated install/update/rollback/uninstall passed |
@@ -43,8 +45,8 @@ Final local preview: `dist/local-preview/RemCTL Capability Host.app`. Built by t
 
 ## Remaining release gates
 
-- Grant permissions to a local certificate build, change/rebuild it with the same key, and verify the grants still work. Do not infer this from designated-requirement checks alone.
-- Complete administrator installation of the Developer ID build's separately signed Python runtime and its live permission checks. The free-build runtime is already installed and verified.
+- Finish Full Disk Access and its persistence check for the local certificate build. Reminders grant persistence and a real read have passed after the app's code hash changed.
+- Finish the signed release's live permission checks. Both protected runtimes are installed and verified.
 - Validate the Intel artifact and the advertised minimum macOS version on appropriate systems. Cross compilation alone is insufficient.
 - Final local app matches the coordinated desktop UI: HTML SHA-256 `06e2d56c86bc7fa750579b5ebafdc799cf1e444f2de103cebd95900f37b0b50f`, imported from the desktop plugin thread and fingerprint recomputed for this branch. That thread independently verified the live UI. Packaged HTML, plugin fingerprint, icon and installer byte parity passed in this branch.
 
@@ -77,4 +79,6 @@ Final artifact: `dist/release-arm64/RemCTL-arm64.dmg` (43 MB).
 
 The first notarized DMG was unsigned: Apple accepted it, but Gatekeeper's disk-image opening check rejected it. The packaging script now signs the DMG with the app's exact Developer ID certificate before submitting it, verifies the publisher, and requires the disk-image opening assessment before reporting success. Use the final `dist/release-arm64` artifact, not the earlier image in `dist/developer-id-arm64`.
 
-For permission acceptance, launch the host through its LaunchAgent. A host directly spawned by the development client can make macOS attribute a new Reminders request to that client. No ChatGPT permission was granted during that discovery. A temporary test LaunchAgent now runs the free build, separate from the existing installed host. A changed app at `dist/local-update-check` has a different code hash and the identical persistent signing requirement, ready for the real permission continuity check.
+For permission acceptance, launch the host through its LaunchAgent. A host directly spawned by the development client can make macOS attribute a new Reminders request to that client. No ChatGPT permission was granted during that discovery. Temporary test LaunchAgents run the free build and signed release, separate from the existing installed host. A changed app at `dist/local-update-check` has code hash `f5c4110421bfeb6f4c2afe6bb037d174fa5d96e7`, different from the original `de141726b1d7e110a66e82e3aeeb0bd16122b5f7`, with the identical persistent signing requirement. Reminders remained authorized after this update, and a real `today --via-eventkit --json` read through the sealed host passed without another prompt.
+
+The signed release's separately signed Python is now installed and verified under `/Library/RemCTL/Python/a85b3a52b0d60214bfba8a3847ddded0ba077989138eda6152c41a43c6de1592`. Its packaged shell CLI and sealed broker run successfully. Full Disk Access remains blocked by the old Apple Development permission entry: macOS's TCC log explicitly reports that the saved code requirement does not match the new certificate. Adding the source app to the existing entry did not replace that requirement; an explicit UI refresh is awaiting native authentication. This is permission migration, not a reason to grant disk access to Python or the AI client.
