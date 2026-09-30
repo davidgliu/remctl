@@ -551,7 +551,8 @@ class InstallerLifecycleTests(unittest.TestCase):
             INSTALL, "--dry-run", "--shell-completions", "none", check=False
         )
         self.assertNotEqual(reinstall.returncode, 0)
-        self.assertIn("foreign, modified, or unmanifested files", reinstall.stdout)
+        self.assertIn("Nothing was changed", reinstall.stdout)
+        self.assertIn("changed since it installed them", reinstall.stdout)
         self.assertIn("Ownership mismatch: remctl_runtime.py", reinstall.stdout)
         self.assertEqual(foreign.read_text(), "# foreign replacement\n")
 
