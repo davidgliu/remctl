@@ -3,7 +3,7 @@
   "mcpServers": {
     "remctl": {
       "type": "stdio",
-      "command": "/bin/sh",
+      "command": "sh",
       "args": [
         "-c",
         "exec \"$HOME/bin/remctl\" mcp"

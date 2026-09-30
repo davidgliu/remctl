@@ -21,6 +21,22 @@ import build_distribution as distribution
 import local_signing
 
 
+class PluginLauncherTests(unittest.TestCase):
+    def test_discoverable_launcher_uses_installed_cli_without_external_python(self):
+        config = json.loads((ROOT / "plugins/remctl/mcp.json").read_text())["mcpServers"]["remctl"]
+        # Agent Plugins rejects absolute commands before starting the MCP server.
+        self.assertRegex(config["command"], r"^[A-Za-z0-9][A-Za-z0-9._+-]*$")
+        with tempfile.TemporaryDirectory(prefix="remctl home ") as directory:
+            cli = Path(directory) / "bin/remctl"
+            cli.parent.mkdir()
+            cli.write_text('#!/bin/sh\nprintf "%s\\n" "$@"\n')
+            cli.chmod(0o755)
+            result = subprocess.run([config["command"], *config["args"]],
+                                    env={"HOME": directory, "PATH": "/usr/bin:/bin"},
+                                    capture_output=True, text=True, check=True)
+            self.assertEqual(result.stdout, "mcp\n")
+
+
 class RuntimeArchiveTests(unittest.TestCase):
     def archive(self, directory, members):
         path = Path(directory) / "runtime.tar.gz"
