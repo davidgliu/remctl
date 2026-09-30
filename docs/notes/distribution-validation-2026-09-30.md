@@ -1,5 +1,7 @@
 # Distribution implementation and validation
 
+Historical artifact: the redesigned launch build has a separate [2.0 release validation record](release-2.0.0-validation.md). The artifact and installed-state claims below describe the earlier build.
+
 September 30, 2026. Local branch: `codex/remctl-distribution`. No push, main update or public release.
 
 ## Implemented paths

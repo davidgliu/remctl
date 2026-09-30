@@ -1,10 +1,10 @@
 # Changelog
 
-## 2.0.0 — Unreleased
+## 2.0.0 — 2026-09-30
 
 ### Install without Xcode or Python
 
-- The default install is a notarized download. `RemCTL-arm64.dmg` and `RemCTL-x86_64.dmg` contain the signed app and 'Install RemCTL.command'; from a checkout, `./install.sh` downloads the release for your Mac. The installer checks the full signature, the MacStories Developer ID, and Gatekeeper before installing anything, and never falls back to an unsigned build.
+- The default install is a notarized download. `RemCTL-arm64.dmg` contains the signed app and 'Install RemCTL.command' for Apple silicon; from a checkout, `./install.sh` downloads the release. Intel Macs build from source; that route has not yet been tested on Intel. The installer checks the full signature, the MacStories Developer ID, and Gatekeeper before installing anything, and never falls back to an unsigned build.
 - `./install.sh --from-source` builds everything for free with Apple's Command Line Tools. It downloads a pinned, checksum-verified Python and signs the app with a certificate it creates in `~/Library/Application Support/RemCTL Signing`, without an Apple account. Later builds reuse that certificate, so permissions carry over.
 - RemCTL ships its own Python 3.13. The host installs it into a root-owned, content-addressed folder under `/Library/RemCTL/Python` and checks every file against a signed manifest. It asks for an administrator password only when that exact runtime is missing, and never changes a system or Homebrew Python.
 - New installer options: `--prebuilt APP`, `--allow-local-build`, `--build-output`, and `--migrate-signing`. The installer refuses to change the app's signing identity without `--migrate-signing`. `--from-source` keeps the Apple Development certificate recorded by earlier 2.0 prereleases.
