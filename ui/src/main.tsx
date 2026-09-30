@@ -1444,7 +1444,7 @@ function Workspace() {
                   <span className="smart-symbol">
                     <Icon size={17} />
                   </span>
-                  <strong>{data.counts?.[id] ?? "—"}</strong>
+                  {id !== "completed" && <strong>{data.counts?.[id] ?? "—"}</strong>}
                 </span>
                 <span>{label}</span>
               </button>
