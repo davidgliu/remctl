@@ -1,13 +1,15 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Folder, List, ChevronRight, Search } from "lucide-react";
 import { RecordData as D } from "./bridge";
+import { Select, Choice } from "./pickers";
+import { colorFor } from "./reminder-helpers";
 
 export function ListBadge({ list, color }: { list: D; color: string }) {
   const badge = list.badge || {};
   return (
     <span
       className={"list-symbol " + (badge.emoji ? "emoji-symbol" : "")}
-      style={{ background: color }}
+      style={{ "--badge": color } as React.CSSProperties}
     >
       {list.isGroup ? (
         <Folder size={14} />
@@ -20,6 +22,13 @@ export function ListBadge({ list, color }: { list: D; color: string }) {
       )}
     </span>
   );
+}
+
+/** Lists as pop-up menu choices, each with its own icon. */
+export function listChoices(lists: D[]): Choice[] {
+  return lists
+    .filter((list) => !list.isGroup)
+    .map((list, index) => ({ value: String(list.id), label: list.title, text: list.title || "", icon: <ListBadge list={list} color={colorFor(list, index)} /> }));
 }
 
 export type Action = {
@@ -360,7 +369,7 @@ export function ListAppearance({
           onChange={(e) => setBadge({ emoji: e.target.value })}
         />
       </label>
-      <div className="list-type-controls"><label>List type<select aria-label="List type" value={groceries?"groceries":"standard"} onChange={e=>setGroceries(e.target.value==="groceries")}><option value="standard">Standard</option><option value="groceries">Groceries</option></select></label>{groceries&&<label>Language<select aria-label="Groceries language" value={locale} onChange={e=>setLocale(e.target.value)}>{["en_US","en_GB","it_IT","fr_FR","de_DE","es_ES"].map(v=><option key={v}>{v}</option>)}</select></label>}</div>
+      <div className="list-type-controls"><label>List type<Select aria-label="List type" value={groceries?"groceries":"standard"} onChange={e=>setGroceries(e.target.value==="groceries")}><option value="standard">Standard</option><option value="groceries">Groceries</option></Select></label>{groceries&&<label>Language<Select aria-label="Groceries language" value={locale} onChange={e=>setLocale(e.target.value)}>{["en_US","en_GB","it_IT","fr_FR","de_DE","es_ES"].map(v=><option key={v}>{v}</option>)}</Select></label>}</div>
       <input
         className="symbol-search"
         aria-label="Search list symbols"

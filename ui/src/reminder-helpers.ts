@@ -133,3 +133,14 @@ export function pinnedSidebarLists(lists: D[], smartLists: D[]): D[] {
     ...smartLists.filter(list => list.pinned && list.kind === "custom").map(list => ({...list, sidebarKind: "smart"}))]
     .sort((a: D, b: D) => (a.pinnedDate ?? Number.MAX_SAFE_INTEGER) - (b.pinnedDate ?? Number.MAX_SAFE_INTEGER));
 }
+
+// Fallback list colors, in Reminders' order, for lists that report none.
+export const COLORS = ["#54b652", "#e9b92e", "#ef8d32", "#ed5e5e", "#ad72d8", "#5394ed"];
+export function colorFor(list: D, index = 0): string {
+  const c = list?.color;
+  return typeof c === "string" && /^#[\da-f]{6}$/i.test(c)
+    ? c
+    : typeof c === "object" && c?.hex
+      ? c.hex
+      : COLORS[index % 6];
+}
