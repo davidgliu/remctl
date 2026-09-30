@@ -242,7 +242,51 @@ def socket_path() -> Path:
     installed = _installed_path_marker(
         app_path() / "Contents/Resources/remctl-capability-host-socket-path"
     )
-    return installed or Path.home() / "Library/Application Support/RemCTL/capability-host.sock"
+    return (
+        installed
+        or _launch_agent_socket()
+        or Path.home() / "Library/Application Support/RemCTL/capability-host.sock"
+    )
+
+
+def _launch_agent_socket() -> Path | None:
+    """Socket the installer handed the host in its LaunchAgent.
+
+    A downloaded or source-built app is sealed without a socket path, and the
+    installer places the socket under PREFIX, so the LaunchAgent is the only
+    record of it for a custom PREFIX.
+    """
+    path = launch_agent_path()
+    try:
+        details = path.lstat()
+        if (
+            not stat.S_ISREG(details.st_mode)
+            or details.st_uid != os.getuid()
+            or stat.S_IMODE(details.st_mode) & 0o022
+            or details.st_size > 65536
+        ):
+            return None
+        with path.open("rb") as handle:
+            value = plistlib.load(handle)
+    except (OSError, ValueError, plistlib.InvalidFileException):
+        return None
+    arguments = value.get("ProgramArguments") if isinstance(value, dict) else None
+    if (
+        not isinstance(arguments, list)
+        or len(arguments) != 4
+        or arguments[1:3] != ["--run-capability-host", "--socket"]
+        or not isinstance(arguments[3], str)
+        or "\x00" in arguments[3]
+    ):
+        return None
+    socket = Path(arguments[3])
+    if (
+        not socket.is_absolute()
+        or socket != socket.resolve(strict=False)
+        or socket.name != "capability-host.sock"
+    ):
+        return None
+    return socket
 
 
 def launch_agent_path() -> Path:
@@ -256,16 +300,8 @@ def launch_agent_path() -> Path:
     )
     if installed_agent is not None:
         return installed_agent
-    installed_app = _installed_path_marker(
-        CLIENT_ROOT / ".remctl-capability-host-app",
-        expected_name=APP_NAME,
-    )
-    if installed_app is not None and installed_app.parent.name == "Applications":
-        return (
-            installed_app.parent.parent
-            / "Library/LaunchAgents"
-            / f"{LAUNCH_AGENT_LABEL}.plist"
-        )
+    # The installer keeps the LaunchAgent in the login folder whatever PREFIX is,
+    # because launchd loads nothing else at login.
     return Path.home() / "Library/LaunchAgents" / f"{LAUNCH_AGENT_LABEL}.plist"
 
 

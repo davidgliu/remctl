@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixes
+
+- A custom `PREFIX` works with the download and with `--from-source`. The installer puts the host's socket under the prefix, but the CLI looked for it in `~/Library/Application Support/RemCTL`, so every command that needs the host failed and onboarding couldn't grant permissions. The CLI now reads the socket from the host's LaunchAgent, and looks for that LaunchAgent in `~/Library/LaunchAgents`, where the installer puts it. ([#50](https://github.com/viticci/remctl/issues/50))
+
 ## 2.0.0 — 2026-09-30
 
 ### Install without Xcode or Python

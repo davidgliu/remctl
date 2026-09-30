@@ -4,6 +4,7 @@ import contextlib
 import io
 import json
 import os
+import plistlib
 import pty
 import select
 import signal
@@ -282,6 +283,44 @@ class CapabilityPlannerTests(unittest.TestCase):
                 self.assertEqual(remctl_broker.app_path(), app)
                 self.assertEqual(remctl_broker.socket_path(), socket_path)
                 self.assertEqual(remctl_broker.launch_agent_path(), agent_path)
+
+    def test_portable_app_under_custom_prefix_finds_socket_through_launch_agent(self):
+        with tempfile.TemporaryDirectory() as temp_value:
+            home = Path(temp_value).resolve()
+            prefix = home / ".local"
+            client = prefix / "bin"
+            app = prefix / "Applications" / "RemCTL Capability Host.app"
+            resources = app / "Contents" / "Resources"
+            socket_path = prefix / "Library/Application Support/RemCTL/capability-host.sock"
+            agent_path = home / "Library/LaunchAgents/net.macstories.remctl.capability-host.plist"
+            client.mkdir(parents=True)
+            resources.mkdir(parents=True)
+            agent_path.parent.mkdir(parents=True)
+            (client / ".remctl-capability-host-app").write_text(str(app) + "\n")
+            (resources / "remctl-capability-host-socket-path").write_text("portable-user\n")
+            executable = app / "Contents/MacOS/RemCTL Capability Host"
+            agent_path.write_bytes(plistlib.dumps({
+                "Label": "net.macstories.remctl.capability-host",
+                "ProgramArguments": [str(executable), "--run-capability-host", "--socket", str(socket_path)],
+            }))
+            agent_path.chmod(0o644)
+            default_socket = home / "Library/Application Support/RemCTL/capability-host.sock"
+            with (
+                mock.patch.object(remctl_broker, "CLIENT_ROOT", client),
+                mock.patch.dict(os.environ, {
+                    "HOME": str(home),
+                    "REMCTL_CAPABILITY_HOST_APP": "",
+                    "REMCTL_CAPABILITY_HOST_SOCKET": "",
+                    "REMCTL_CAPABILITY_HOST_LAUNCH_AGENT": "",
+                }),
+            ):
+                self.assertEqual(remctl_broker.launch_agent_path(), agent_path)
+                self.assertEqual(remctl_broker.socket_path(), socket_path)
+                # A LaunchAgent others can write is not trusted.
+                agent_path.chmod(0o666)
+                self.assertEqual(remctl_broker.socket_path(), default_socket)
+                agent_path.unlink()
+                self.assertEqual(remctl_broker.socket_path(), default_socket)
 
     def test_real_parser_planner_and_server_binding_cover_all_file_surfaces(self):
         parser = remctl_broker._load_real_parser()
