@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.0.2 — 2026-09-30
+
+### Fixes
+
+- The download opens with a double-click. The disk image's 'Install RemCTL.command' was an unsigned script, which Gatekeeper refuses to open from the internet ("Apple could not verify…"). It's now 'Install RemCTL', a signed and notarized app that opens Terminal and runs the same installer.
+- Upgrading RemCTL 1.7.1 through the download works. The installer stopped at 1.7.1's files with "Refusing to replace foreign, modified, or unmanifested files" and wanted a flag the disk image couldn't pass. It now recognizes an exact 1.7.1 and asks before replacing it. Older files it can't verify are listed, with an offer to move them to the Trash. Without a terminal to answer in, it changes nothing and says what to run.
+
 ## 2.0.1 — 2026-09-30
 
 ### Fixes
