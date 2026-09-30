@@ -521,10 +521,11 @@ function Workspace() {
     const args = Object.fromEntries(Object.entries({...quickDraft, title: quickDraft.title.trim()}).filter(([,v]) => v !== undefined && v !== ""));
     // Once a reminder exists, clear its draft before refresh so a read failure cannot create it twice.
     const response = await mutate("create_reminder", args);
-    if (response.id) {
+    if (response.id || response.status === "created") {
       setQuickDraft(another ? {...quickDraft, title: "", notes: ""} : null);
       setQuickOpen(another);
       setToast("Reminder added");
+      if (response.warnings?.length) setError(response.warnings.join(" · "));
     }
     if (response.status === "partial" || response.status === "uncertain") {
       if (!response.id) setQuickOpen(false);
