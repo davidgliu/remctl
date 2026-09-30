@@ -33,7 +33,15 @@ If you connected Codex to RemCTL before (with `remctl mcp install` or during onb
 remctl mcp remove --client codex
 ```
 
-**From a checkout.** If you already registered a checkout with `codex plugin marketplace add .`, it keeps working. The plugin then follows your checkout instead of the installed app, so run the installer after every `git pull` to keep the two in step.
+**From a checkout.** If you already registered a checkout with `codex plugin marketplace add .`, it keeps working. The plugin then follows your checkout instead of the installed app, so run the installer after every `git pull` to keep the two in step. To switch an existing checkout registration to the installed app, remove the old marketplace first:
+
+```bash
+codex plugin marketplace remove remctl-local
+codex plugin marketplace add "$HOME/Applications/RemCTL Capability Host.app/Contents/Resources"
+codex plugin add remctl@remctl-local
+```
+
+This changes where Codex finds the plugin; it does not remove RemCTL or your reminders.
 
 ## Update
 

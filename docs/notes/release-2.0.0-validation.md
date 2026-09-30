@@ -20,7 +20,20 @@ The complete Python suite ran 844 tests successfully, with 6 skipped. TypeScript
 
 ## Installed acceptance
 
-Pending completion of the protected runtime installation and native workspace checks.
+Installed from the mounted, read-only release DMG using the normal transactional installer after administrator authorization installed the protected Python runtime. The existing Developer ID was preserved; all three privacy grants remained authorized. The active MCP HTTP endpoint restarted and passed its health check.
+
+- Installed code hash: `cf7b25ea9ba4cc487b4f0ebeea434b962c35fb13`.
+- Protected Python runtime: `54cabb2c16214bd0554e0f92f676daa60b7b73b6ce4a9595b1ea55d702c9c11c`.
+- CLI, plugin, and app report `2.0.0`.
+- Installed workspace and server modules match release source byte for byte; nested signatures, stapled ticket, and Gatekeeper checks pass after installation.
+- Doctor reports ready with zero failures and Reminders, Automation, and Full Disk Access authorized. Its direct-caller database warning is expected: protected reads use the signed host.
+- Codex marketplace `remctl-local` now points to `~/Applications/RemCTL Capability Host.app/Contents/Resources`. Plugin cache version `2.0.0` reports build `912f82237323316f`.
+
+Computer Use verified the native ChatGPT workspace after refreshing the plugin and reopening Reminders. The app log confirms it read `ui://remctl/workspace-740c62eee4a4.html`. Today loaded with native list icons and pinned tiles; the floating Quick Add panel stayed above the chat composer. Command-palette search and Return opened Weekly 531, whose nested reminders, rich link cards, saved images, and full-size attachment viewer worked. Closing an image restored focus to its preview button.
+
+A disposable reminder, id `5023`, was created through Quick Add in `RemCTL Studio · Demo` with an all-day September 30 date, flag, and notes. A standalone RemCTL MCP read verified those values. An inspector edit saved updated notes, independently verified through MCP. The workspace then deleted the test reminder; MCP confirmed `deleted: true` and `recoverable: true`. No existing reminder was modified.
+
+The previous checkout marketplace registration had to be removed before the installed-app source could be added under the same name. This upgrade step is now included in the plugin guide.
 
 ## Publication boundary
 
