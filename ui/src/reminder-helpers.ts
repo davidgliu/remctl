@@ -100,3 +100,24 @@ export function earlyReminderText(value?: D): string {
     ]
   );
 }
+
+/** Display known structured briefs without changing the underlying reminder note. */
+export function notePresentation(notes: unknown): {text:string;label?:string;version?:string} {
+  if (typeof notes !== 'string') return {text:''};
+  try {
+    const value = JSON.parse(notes);
+    if (value && !Array.isArray(value) && typeof value.changelog === 'string' && (typeof value.app_url === 'string' || typeof value.name === 'string')) {
+      return {text:value.changelog.replace(/\\n/g, '\n'), label:typeof value.labels === 'string' ? value.labels : undefined, version:typeof value.version === 'string' ? value.version : undefined};
+    }
+  } catch {}
+  return {text:notes};
+}
+
+export function todaySection(item: Record<string, any>, date: string) {
+  const due = item.displayDate || item.dueDate;
+  if (!due) return 'Today';
+  if (due.slice(0,10) < date) return 'Overdue';
+  if (item.allDay) return 'Today';
+  const hour = Number(due.slice(11,13));
+  return hour < 12 ? 'Morning' : hour < 17 ? 'Afternoon' : 'Tonight';
+}

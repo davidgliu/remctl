@@ -101,6 +101,27 @@ class DesktopPluginTests(unittest.TestCase):
             resource=self.server.plugin.resource(p.UI_URI,None)
         self.assertEqual(resource["contents"][0]["text"],p._UI_HTML)
 
+    def test_saved_link_resource_resolves_only_the_selected_reminder_link(self):
+        self.executor.stdout = json.dumps({"url":"https://example.com", "title":"Saved title", "image":{"mimeType":"image/png", "data":"eA=="}})
+        response = self.server.plugin.resource("remctl://reminder/demo-uuid/link/2", None)
+        self.assertEqual(json.loads(response["contents"][0]["text"])["title"], "Saved title")
+        self.assertEqual(json.loads(self.executor.calls[-1]["argv"][2]), {"operation":"link_preview", "identifier":"demo-uuid", "index":2})
+
+    def test_missing_preview_respects_setting_and_caches_public_artwork(self):
+        self.executor.stdout = json.dumps({"url":"https://example.com", "source":"reminders"})
+        self.call("update_settings", {"set":{"loadLinkPreviews":False}})
+        with patch('remctl_workspace.fetch_public_preview') as fetch:
+            self.server.plugin.resource("remctl://reminder/demo-uuid/link/0", None)
+            fetch.assert_not_called()
+        self.call("update_settings", {"set":{"loadLinkPreviews":True}})
+        with patch('remctl_workspace.fetch_public_preview', return_value={"source":"website","image":{"mimeType":"image/png","data":"eA=="}}) as fetch:
+            for _ in range(2):
+                response=self.server.plugin.resource("remctl://reminder/demo-uuid/link/0", None)
+                self.assertIn("image",json.loads(response["contents"][0]["text"]))
+            self.assertEqual(fetch.call_count,1)
+        cached = next((self.server.plugin.directory / 'link-previews').glob('*.json'))
+        self.assertEqual(cached.stat().st_mode & 0o777,0o600)
+
     def test_extension_entrypoints_are_app_only_except_workspace(self):
         catalog={tool["name"]:tool for tool in self.server.plugin.descriptors()}
         self.assertEqual(catalog["open_workspace"]["inputSchema"],p.EMPTY)

@@ -1,7 +1,7 @@
 import {build} from 'esbuild';
 import assert from 'node:assert/strict';
 const bundle=await build({entryPoints:[new URL('./src/reminder-helpers.ts',import.meta.url).pathname],bundle:true,write:false,format:'esm',platform:'node'});
-const {arrangeReminders,selectionRange,rescheduledDue,recurrenceText,isReminder}=await import('data:text/javascript;base64,'+Buffer.from(bundle.outputFiles[0].text).toString('base64'));
+const {arrangeReminders,selectionRange,rescheduledDue,recurrenceText,isReminder,notePresentation,todaySection}=await import('data:text/javascript;base64,'+Buffer.from(bundle.outputFiles[0].text).toString('base64'));
 assert.equal(isReminder({id:9,title:'Groceries',isGroceries:true}),false);
 assert.equal(isReminder({status:'ok',id:9}),false);
 assert.equal(isReminder({id:9,title:'Milk',completed:false}),true);
@@ -17,6 +17,11 @@ assert.equal(rescheduledDue({dueDate:'2026-09-30T00:00:00',allDay:true},'2026-10
 assert.equal(recurrenceText({frequency:'weekly',interval:2,daysOfWeek:[2,6]}),'weekly x2 mon,fri');
 const ordinal={frequency:'monthly',interval:2,daysOfWeekDetailed:[{dayOfTheWeek:6,weekNumber:-1}],count:8};
 assert.deepEqual(JSON.parse(recurrenceText(ordinal)),ordinal);
+assert.deepEqual(notePresentation(JSON.stringify({changelog:'One\\nTwo',labels:'App Update',version:'5.0',app_url:'https://example.com'})), {text:'One\nTwo',label:'App Update',version:'5.0'});
+assert.equal(notePresentation('{unusual note}').text,'{unusual note}');
+assert.equal(todaySection({dueDate:'2026-09-30T14:00:00',allDay:false},'2026-09-30'),'Afternoon');
+assert.equal(todaySection({dueDate:'2026-09-30T00:00:00',allDay:true},'2026-09-30'),'Today');
+assert.equal(todaySection({dueDate:'2026-09-29T18:00:00',allDay:false},'2026-09-30'),'Overdue');
 console.log('Interaction contracts passed: hierarchy, collapse, range selection, calendar time preservation, recurrence fidelity.');
 const {execFileSync}=await import('node:child_process');
 const {OpenAIFormSchema,OpenAISettingsReadResultSchema,OpenAIUiToolMetadataSchema}=await import('@openai/mcp-extensions/server');

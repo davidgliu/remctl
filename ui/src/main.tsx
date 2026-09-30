@@ -73,9 +73,12 @@ import {
   recurrenceText,
   earlyReminderText,
   isReminder,
+  todaySection,
 } from "./reminder-helpers";
 import {TagEditor, AttachmentGallery, SmartListEditor} from "./power";
 import {DueEditor} from "./date-editor";
+import {QuickAdd} from "./quick-add";
+import {NotePreview, RichLinks} from "./rich-content";
 import icon from "../../plugins/remctl/assets/icon.png";
 import "./style.css";
 const VIEWS = [
@@ -183,7 +186,8 @@ function Workspace() {
     [catalog, setCatalog] = useState<D[]>([]),
     [symbols, setSymbols] = useState<D>({}),
     [search, setSearch] = useState(""),
-    [newTitle, setNewTitle] = useState(""),
+    [quickDraft, setQuickDraft] = useState<D | null>(null),
+    [quickOpen, setQuickOpen] = useState(false),
     [undo, setUndo] = useState<D | null>(null),
     [sidebar, setSidebar] = useState(window.innerWidth > 1100),
     [file, setFile] = useState<D | null>(null),
@@ -206,7 +210,6 @@ function Workspace() {
     dataRef = useRef(data),
     detailRef = useRef(detail),
     initialized = useRef(false),
-    quickRef = useRef<HTMLInputElement>(null),
     searchRef = useRef<HTMLInputElement>(null);
   queryRef.current = query;
   dataRef.current = data;
@@ -506,27 +509,29 @@ function Workspace() {
         true,
       ),
     );
-  const add = () =>
-    run(async () => {
-      if (!newTitle.trim()) return;
-      const args: D = { title: newTitle.trim() };
-      if (
-        query.listId &&
-        !data.lists.find((i: D) => i.id === query.listId)?.isGroup
-      )
-        args.list_id = query.listId;
-      else if (settings.defaultList) {
-        if (/^\d+$/.test(settings.defaultList))
-          args.list_id = Number(settings.defaultList);
-        else args.list = settings.defaultList;
-      }
-      if (query.view === "today") args.due = "today";
-      if (query.view === "flagged") args.flagged = true;
-      const response = await change("create_reminder", args);
-      setNewTitle("");
-      if (response.id) setToast("Reminder added");
-      quickRef.current?.focus();
-    });
+  const openQuickAdd = (defaults: D = {}) => {
+    const current = data.lists.find((i: D) => i.id === query.listId);
+    const preferred = data.lists.find((i: D) => String(i.id) === String(settings.defaultList) || i.title === settings.defaultList);
+    const seed: D = {title: "", ...(current && !current.isGroup ? {list_id: current.id} : preferred ? {list_id: preferred.id} : settings.defaultList ? {list: settings.defaultList} : {}), ...(query.view === "today" ? {due: today()} : {}), ...(query.view === "flagged" ? {flagged: true} : {})};
+    setQuickDraft(old => ({...(old || seed), ...defaults}));
+    setError(""); setModal(null); setMenu(false); setQuickOpen(true);
+  };
+  const add = (another: boolean) => run(async () => {
+    if (!quickDraft?.title?.trim()) return;
+    const args = Object.fromEntries(Object.entries({...quickDraft, title: quickDraft.title.trim()}).filter(([,v]) => v !== undefined && v !== ""));
+    // Once a reminder exists, clear its draft before refresh so a read failure cannot create it twice.
+    const response = await mutate("create_reminder", args);
+    if (response.id) {
+      setQuickDraft(another ? {...quickDraft, title: "", notes: ""} : null);
+      setQuickOpen(another);
+      setToast("Reminder added");
+    }
+    if (response.status === "partial" || response.status === "uncertain") {
+      if (!response.id) setQuickOpen(false);
+      setError(response.message || "Creation needs attention. Refresh before trying again.");
+    }
+    await refresh();
+  });
   const bulk = (tool: string, args: D) =>
     run(async () => {
       let count = 0;
@@ -604,7 +609,7 @@ function Workspace() {
       } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "n") {
         e.preventDefault();
         if (e.shiftKey) openAction("create_list");
-        else quickRef.current?.focus();
+        else openQuickAdd();
       } else if (
         !editing &&
         e.shiftKey &&
@@ -622,7 +627,7 @@ function Workspace() {
         setModal({ kind: "delete", item: selected[0] });
       } else if (!editing && e.key === "n") {
         e.preventDefault();
-        quickRef.current?.focus();
+        openQuickAdd();
       } else if (!editing && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
         e.preventDefault();
         const index = navigable.findIndex(
@@ -668,6 +673,7 @@ function Workspace() {
     return () => window.removeEventListener("keydown", key);
   }, [
     data,
+    query,
     selection,
     settings,
     collapsed,
@@ -704,23 +710,14 @@ function Workspace() {
       : data.items,
     collapsed,
   );
-  const sectionKey = (item: D) => query.listId && item.groupSection ? item.groupSection : query.view === "today" ? ((item.displayDate || item.dueDate)?.slice(0, 10) < today() ? "Overdue" : "Today") : query.view === "scheduled" || layout === "calendar" ? ((item.displayDate || item.dueDate)?.slice(0, 10) || "No date") : "Reminders";
+  const sectionKey = (item: D) => query.listId && item.groupSection ? item.groupSection : query.view === "today" ? todaySection(item, today()) : query.view === "scheduled" || layout === "calendar" ? ((item.displayDate || item.dueDate)?.slice(0, 10) || "No date") : "Reminders";
   const navigable = layout === "list" ? visible.filter(item => !collapsedSections.includes(sectionKey(item))) : visible;
   const groups: Record<string, D[]> = {};
   if (query.listId && layout !== "calendar" && (!loading || visible.length))
     for (const section of data.sections || [])
       if (section.listId === query.listId) groups[section.title] = [];
   for (const item of visible) {
-    const key =
-      query.listId && item.groupSection
-        ? item.groupSection
-        : query.view === "today"
-          ? (item.displayDate || item.dueDate)?.slice(0, 10) < today()
-            ? "Overdue"
-            : "Today"
-          : query.view === "scheduled" || layout === "calendar"
-            ? (item.displayDate || item.dueDate)?.slice(0, 10) || "No date"
-            : "Reminders";
+    const key = sectionKey(item);
     (groups[key] ||= []).push(item);
   }
   if (query.listId && (!loading || visible.length))
@@ -728,6 +725,7 @@ function Workspace() {
       if (section.listId === query.listId) groups[section.title] ||= [];
   const openAction = (name: string, defaults: D = {}) => {
     setError("");
+    if (name === "create_reminder") {openQuickAdd(defaults);return;}
     if (name === "manage_smart_list_create" || name === "manage_smart_list_edit") {
       const item = name.endsWith("edit") ? data.smartLists?.find((l: D) => l.id === defaults.smart_list_id) : null;
       if (name.endsWith("edit") && !item) {setError("Choose a smart list from the sidebar to edit.");return;}
@@ -1133,7 +1131,7 @@ function Workspace() {
       shortcut: "⌘ N",
       run: () => {
         setModal(null);
-        quickRef.current?.focus();
+        openQuickAdd();
       },
     },
     ...(selected.length === 1
@@ -1303,6 +1301,7 @@ function Workspace() {
           {item.priority === "high" && <b className="priority">!!! </b>}
           {item.title}
         </span>
+        <NotePreview item={item} run={run}/>
         <div className="task-meta">
           {!currentList && item.list && (
             <span className="list-name">{item.list}</span>
@@ -1336,12 +1335,14 @@ function Workspace() {
           {item.subtaskCount > 0 && (
             <span>
               <Layers size={11} />
-              {item.subtaskCount}
+              {item.subtaskCount} {item.subtaskCount === 1 ? "subtask" : "subtasks"}
             </span>
           )}
           {item.attachments?.length > 0 && <Paperclip size={12} />}{" "}
-          {item.recurrence && <Repeat2 size={12} />}
+          {item.recurrence && <span title={recurrenceText(item.recurrence)}><Repeat2 size={12} />{titleCase(item.recurrence.frequency || "Repeats")}</span>}
         </div>
+        <RichLinks item={item} run={run}/>
+        {!!item.attachments?.length && <div className="task-inline-attachments" onClick={e => e.stopPropagation()}><AttachmentGallery item={item} run={run}/></div>}
       </div>
       {item.assignment?.assignee && (
         <span className="avatar" title={item.assignment.assignee.name}>
@@ -1622,7 +1623,7 @@ function Workspace() {
             </IconButton>
             <button
               className="new-button"
-              onClick={() => quickRef.current?.focus()}
+              onClick={() => openQuickAdd()}
             >
               <Plus size={16} />
               New Reminder
@@ -2086,34 +2087,6 @@ function Workspace() {
                   Load more · {data.total - visible.length} remaining
                 </button>
               )}
-              {query.view !== "deleted" && surface !== "selection" && (
-                <form
-                  className="quick-entry"
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    add();
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") { e.preventDefault(); add(); }
-                  }}
-                >
-                  <Plus size={19} />
-                  <input
-                    ref={quickRef}
-                    aria-label="New reminder title"
-                    placeholder="Add a reminder…"
-                    value={newTitle}
-                    onChange={(e) => setNewTitle(e.target.value)}
-                  />
-                  {newTitle ? (
-                    <button type="button" aria-label="Add reminder" disabled={busy} onClick={() => add()}>
-                      <CornerDownLeft size={16} />
-                    </button>
-                  ) : (
-                    <kbd>N</kbd>
-                  )}
-                </form>
-              )}
               <footer className="collection-footer">
                 <span>
                   <i className="connected-dot" />
@@ -2194,6 +2167,7 @@ function Workspace() {
           </div>
         )}
       </main>
+      {quickOpen && quickDraft && <QuickAdd draft={quickDraft} update={setQuickDraft} lists={lists} busy={busy} error={error} close={() => setQuickOpen(false)} save={add}/>}
       {contextMenu && (
         <ContextMenu {...contextMenu} close={() => setContextMenu(null)} />
       )}
@@ -2969,7 +2943,7 @@ function Inspector({
               onChange={(e) => set("notes", e.target.value)}
               rows={3}
             />
-            {item.url && <button className="saved-link" onClick={()=>safeLink(item.url)}><Link2 size={14}/><span>{item.url}</span><ArrowUpRight size={12}/></button>}
+            <div className="inspector-rich-links"><RichLinks item={item} run={run}/></div>
             {!!item.attachments?.length && <details className="inspector-attachments" open><summary>Attachments <span>{item.attachments.length}</span></summary><AttachmentGallery item={item} run={run}/></details>}
             <div className="inspector-group">
               <label>

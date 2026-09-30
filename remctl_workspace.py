@@ -5,6 +5,8 @@ import base64
 import hashlib
 import json
 import mimetypes
+import plistlib
+from urllib.parse import urlsplit
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -26,7 +28,7 @@ def execute(request, api):
     if not isinstance(request, dict):
         raise ValueError("Workspace request must be an object")
     operation = request.get("operation", "query")
-    if operation not in {"query", "detail", "attachment", "mentions", "events", "preview_filter"}:
+    if operation not in {"query", "detail", "attachment", "link_preview", "mentions", "events", "preview_filter"}:
         raise ValueError("Unknown workspace operation")
     db = api["open_db"]()
     try:
@@ -74,6 +76,11 @@ def _read(db, request, api, operation):
             item["resourceUri"] = "remctl://reminder/" + str(item["objectUUID"])
             item["listUUID"] = by_id.get(item["listId"], {}).get("objectUUID")
             api["hydrate_reminder_detail"](db, item, item["id"])
+            links = rich_link_rows(db, item["id"])
+            if links:
+                item["links"] = [{"url": link["ZURL"], "resourceUri": item["resourceUri"] + "/link/" + str(index),
+                                  "revision": hashlib.sha256(link["ZMETADATA"] or b"").hexdigest()[:16]}
+                                 for index, link in enumerate(links)]
             # Paths are host-only. Apps use a resource URI resolved against the real attachment.
             for index, attachment in enumerate(item.get("attachments", [])):
                 attachment.pop("path", None)
@@ -81,13 +88,19 @@ def _read(db, request, api, operation):
             item["revision"] = revision(item)
         return values
 
-    if operation in {"detail", "attachment"}:
+    if operation in {"detail", "attachment", "link_preview"}:
         identifier = request.get("identifier")
         row = (api["q_reminder"](db, identifier) if isinstance(identifier, int)
                else api["q_reminder_by_identifier"](db, str(identifier)))
         if row is None:
             raise ValueError("This reminder no longer exists")
         item = payloads([row], detail=True)[0]
+        if operation == "link_preview":
+            links = rich_link_rows(db, row["Z_PK"])
+            index = _integer(request.get("index"), 0, 500)
+            if index >= len(links):
+                raise ValueError("This saved link no longer exists")
+            return saved_link_preview(links[index]["ZURL"], links[index]["ZMETADATA"])
         if operation == "attachment":
             index = _integer(request.get("index"), 0, 500)
             attachments = api["attachment_rows_to_json"](api["q_attachments"](db, row["Z_PK"]))
@@ -321,3 +334,222 @@ def matches_smart(item, spec, today):
         outcomes = [matches_smart(item, child, today) for child in spec["filters"]]
         return any(outcomes) if spec.get("match") == "any" else all(outcomes)
     raise ValueError("Smart filter is not yet executable: " + str(kind))
+
+
+def rich_link_rows(db, reminder_id):
+    """Read only the saved URL attachments belonging to this reminder."""
+    columns = {row[1] for row in db.execute('PRAGMA table_info(ZREMCDOBJECT)')}
+    if not {'ZURL', 'ZREMINDER2', 'ZMARKEDFORDELETION'} <= columns:
+        return []
+    metadata = 'ZMETADATA' if 'ZMETADATA' in columns else 'NULL AS ZMETADATA'
+    return db.execute(
+        f'SELECT ZURL, {metadata} FROM ZREMCDOBJECT WHERE ZREMINDER2=? '
+        "AND ZURL IS NOT NULL AND ZURL != '' AND ZMARKEDFORDELETION=0 ORDER BY Z_PK",
+        (reminder_id,),
+    ).fetchall()
+
+
+def decode_link_archive(raw):
+    """Decode plist values without instantiating classes from an NSKeyedArchive."""
+    if not isinstance(raw, bytes) or len(raw) > 16 * 1024 * 1024:
+        return {}
+    try:
+        archive = plistlib.loads(raw)
+    except (ValueError, TypeError, plistlib.InvalidFileException, OverflowError):
+        return {}
+    if not isinstance(archive, dict):
+        return {}
+    objects = archive.get('$objects', [])
+    budget = [12000]
+
+    def resolve(value, seen=frozenset(), depth=0):
+        budget[0] -= 1
+        if budget[0] < 0 or depth > 28:
+            return None
+        if isinstance(value, plistlib.UID):
+            index = value.data
+            if index in seen or not 0 <= index < len(objects):
+                return None
+            return resolve(objects[index], seen | {index}, depth + 1)
+        if isinstance(value, dict):
+            result = {key: resolve(child, seen, depth + 1) for key, child in value.items() if key != '$class'}
+            if isinstance(result.get('NS.keys'), list) and isinstance(result.get('NS.objects'), list):
+                return {str(k): v for k, v in zip(result['NS.keys'], result['NS.objects'])}
+            if set(result) == {'NS.data'}:
+                return result['NS.data']
+            if 'NS.relative' in result:
+                return result['NS.relative']
+            return result
+        if isinstance(value, list):
+            return [resolve(child, seen, depth + 1) for child in value]
+        return None if value == '$null' else value
+
+    return resolve(archive.get('$top', {}).get('root', archive)) or {}
+
+
+def saved_link_preview(url, raw):
+    """Expose Apple's cached card, never fetch the linked website on a list read."""
+    try:
+        domain = urlsplit(url).hostname or ''
+    except ValueError:
+        domain = ''
+    result = {'url': url, 'domain': domain, 'source': 'reminders', 'storedMetadataAvailable': bool(raw)}
+    decoded = decode_link_archive(raw)
+    result['storedMetadataDecoded'] = bool(decoded)
+    fields = []
+
+    def visit(value, path=''):
+        if isinstance(value, dict):
+            for key, child in value.items():
+                visit(child, path + '/' + str(key))
+        elif isinstance(value, list):
+            for index, child in enumerate(value):
+                visit(child, path + '/' + str(index))
+        else:
+            fields.append((path, value))
+    visit(decoded)
+    for target, names in [('title', ('title', 'name')), ('summary', ('summary', 'summaryText')), ('siteName', ('siteName', 'site'))]:
+        for path, value in fields:
+            if isinstance(value, str) and path.rsplit('/', 1)[-1].lstrip('_') in names and value:
+                result[target] = value[:4096]
+                break
+    pictures = []
+    for path, value in fields:
+        if not isinstance(value, bytes) or len(value) > 8 * 1024 * 1024:
+            continue
+        mime = ('image/png' if value.startswith(b'\x89PNG\r\n\x1a\n') else
+                'image/jpeg' if value.startswith(b'\xff\xd8\xff') else
+                'image/gif' if value.startswith((b'GIF87a', b'GIF89a')) else
+                'image/webp' if value[:4] == b'RIFF' and value[8:12] == b'WEBP' else None)
+        if mime:
+            pictures.append((path, value, mime))
+    for role in ('image', 'icon'):
+        candidates = [p for p in pictures if ('icon' in p[0].lower()) == (role == 'icon')]
+        if candidates:
+            path, value, mime = max(candidates, key=lambda p: len(p[1]))
+            result[role] = {'mimeType': mime, 'data': base64.b64encode(value).decode()}
+    return result
+
+
+def fetch_public_preview(url):
+    """Fetch a missing website card without cookies, private-network access or scripts."""
+    from html.parser import HTMLParser
+    from urllib.parse import urljoin
+
+    class Metadata(HTMLParser):
+        def __init__(self):
+            super().__init__(convert_charrefs=True)
+            self.values = {}
+            self.title = []
+            self.in_title = False
+
+        def handle_starttag(self, tag, attrs):
+            attrs = dict(attrs)
+            if tag == 'meta':
+                key = (attrs.get('property') or attrs.get('name') or '').lower()
+                if key and attrs.get('content'):
+                    self.values.setdefault(key, attrs['content'])
+            elif tag == 'link' and 'icon' in attrs.get('rel', '').lower().split() and attrs.get('href'):
+                self.values.setdefault('icon', attrs['href'])
+            elif tag == 'title':
+                self.in_title = True
+
+        def handle_endtag(self, tag):
+            if tag == 'title':
+                self.in_title = False
+
+        def handle_data(self, data):
+            if self.in_title:
+                self.title.append(data)
+
+    content, mime, final_url = fetch_public_bytes(url, 2 * 1024 * 1024)
+    if 'html' not in mime:
+        return {}
+    parser = Metadata()
+    parser.feed(content.decode('utf-8', 'replace'))
+    values = parser.values
+    result = {'source':'website', 'title': (values.get('og:title') or values.get('twitter:title') or ''.join(parser.title))[:4096],
+              'siteName': values.get('og:site_name', '')[:512]}
+    for role, candidate in [('image', values.get('og:image') or values.get('twitter:image')), ('icon', values.get('icon'))]:
+        if not candidate:
+            continue
+        try:
+            data, mime, _ = fetch_public_bytes(urljoin(final_url, candidate), 4 * 1024 * 1024)
+            mime = image_mime(data)
+            if mime:
+                result[role] = {'mimeType': mime, 'data': base64.b64encode(data).decode()}
+        except (OSError, ValueError):
+            continue
+    return result
+
+
+def image_mime(data):
+    if data.startswith(b'\x89PNG\r\n\x1a\n'):
+        return 'image/png'
+    if data.startswith(b'\xff\xd8\xff'):
+        return 'image/jpeg'
+    if data.startswith((b'GIF87a', b'GIF89a')):
+        return 'image/gif'
+    if data[:4] == b'RIFF' and data[8:12] == b'WEBP':
+        return 'image/webp'
+    return None
+
+
+def fetch_public_bytes(url, maximum, redirects=3):
+    """Pin each connection to validated DNS results, validating redirects independently."""
+    import http.client
+    import socket
+    import ssl
+    import time
+    from urllib.parse import urljoin
+    from remctl_events import public_address
+
+    if not isinstance(url, str) or len(url) > 8192 or any(ord(c) <= 32 for c in url):
+        raise ValueError('Invalid preview URL')
+    parts = urlsplit(url)
+    if parts.scheme not in ('https', 'http') or not parts.hostname or parts.username or parts.password:
+        raise ValueError('Preview URL must be a public web address')
+    port = parts.port or (443 if parts.scheme == 'https' else 80)
+    if port not in (80, 443):
+        raise ValueError('Preview URL port is not supported')
+    addresses = socket.getaddrinfo(parts.hostname, port, type=socket.SOCK_STREAM)
+    if not addresses or any(not public_address(address[4][0]) for address in addresses):
+        raise ValueError('Preview destination is not public')
+    family, kind, proto, _, address = addresses[0]
+    connection = http.client.HTTPConnection(parts.hostname, port, timeout=6)
+    raw = socket.socket(family, kind, proto)
+    try:
+        raw.settimeout(6)
+        raw.connect(address)
+        connection.sock = ssl.create_default_context().wrap_socket(raw, server_hostname=parts.hostname) if parts.scheme == 'https' else raw
+        connection.request('GET', (parts.path or '/') + ('?' + parts.query if parts.query else ''),
+                           headers={'Host':parts.netloc, 'User-Agent':'RemCTL/0.2 LinkPreview', 'Accept':'text/html,image/*', 'Accept-Encoding':'identity', 'Connection':'close'})
+        response = connection.getresponse()
+        if response.status in (301, 302, 303, 307, 308):
+            if redirects <= 0 or not response.getheader('Location'):
+                raise ValueError('Too many preview redirects')
+            destination = urljoin(url, response.getheader('Location'))
+            connection.close()
+            return fetch_public_bytes(destination, maximum, redirects - 1)
+        if response.status != 200:
+            raise ValueError('Website preview is unavailable')
+        size = response.getheader('Content-Length')
+        if size and int(size) > maximum:
+            raise ValueError('Preview exceeds size limit')
+        chunks, count, deadline = [], 0, time.monotonic() + 12
+        while True:
+            if time.monotonic() > deadline:
+                raise ValueError('Preview download timed out')
+            chunk = response.read1(min(65536, maximum + 1 - count))
+            if not chunk:
+                break
+            count += len(chunk)
+            if count > maximum:
+                raise ValueError('Preview exceeds size limit')
+            chunks.append(chunk)
+        return b''.join(chunks), response.getheader('Content-Type', ''), url
+    except http.client.HTTPException as exc:
+        raise ValueError('Website preview is unavailable') from exc
+    finally:
+        connection.close()
+        raw.close()

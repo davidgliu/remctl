@@ -26,7 +26,7 @@ MIME = "text/html;profile=mcp-app"
 EMPTY = {"type": "object", "properties": {}, "additionalProperties": False}
 DEFAULTS = {"defaultList": "", "startView": "today", "layout": "list", "density": "comfortable",
             "weekStartsOn": "monday", "advancedFeatures": False, "showCompleted": False,
-            "refreshSeconds": 30, "theme": "system"}
+            "refreshSeconds": 30, "theme": "system", "loadLinkPreviews": True}
 SETTINGS_SCHEMA = {"type": "object", "properties": {
     "defaultList": {"type": "string", "title": "Default list", "description": "List name or numeric ID"},
     "startView": {"type": "string", "title": "Open to", "enum": ["today", "scheduled", "flagged", "all", "assigned"]},
@@ -37,6 +37,7 @@ SETTINGS_SCHEMA = {"type": "object", "properties": {
     "showCompleted": {"type": "boolean", "title": "Show completed reminders"},
     "refreshSeconds": {"type": "integer", "title": "Refresh interval", "minimum": 15, "maximum": 300},
     "theme": {"type": "string", "title": "Appearance", "enum": ["system", "light", "dark"]},
+    "loadLinkPreviews": {"type": "boolean", "title": "Load missing link previews", "description": "Fetch artwork from linked public websites when it is not saved on this Mac. Cached Reminders previews always stay available."},
 }, "additionalProperties": False}
 QUERY_SCHEMA = {"type": "object", "properties": {
     "view": {"type": "string", "enum": ["today", "scheduled", "flagged", "urgent", "overdue", "all", "completed", "deleted", "assigned", "list", "smart"]},
@@ -398,17 +399,19 @@ class Plugin:
             return {"contents": [{"uri": uri, "mimeType": MIME, "text": _UI_HTML, "_meta": {
                 "ui": {"csp": {"connectDomains": [], "resourceDomains": []}, "permissions": {"clipboardWrite": {}}},
                 "openai/ui": {"preferredDisplayMode": "fullscreen", "availableDisplayModes": ["inline", "fullscreen"]}}}]}
-        match = re.fullmatch(r"remctl://reminder/([A-Za-z0-9-]+)(?:/attachment/(\d+))?", uri)
+        match = re.fullmatch(r"remctl://reminder/([A-Za-z0-9-]+)(?:/(attachment|link)/(\d+))?", uri)
         if match:
-            args = {"operation": "attachment" if match[2] else "detail", "identifier": match[1]}
+            args = {"operation": {"attachment":"attachment", "link":"link_preview"}.get(match[2], "detail"), "identifier": match[1]}
             if match[2]:
-                args["index"] = int(match[2])
+                args["index"] = int(match[3])
             response = self.query(args, ("resource", uuid.uuid4().hex))
             if response.get("isError"):
                 raise ValueError(response["content"][0]["text"])
             payload = response["structuredContent"]
-            if match[2]:
+            if match[2] == "attachment":
                 return {"contents": [{"uri": uri, **payload}]}
+            if match[2] == "link" and not payload.get("image") and self.read_state("settings.json", DEFAULTS).get("loadLinkPreviews", True):
+                payload = self.enrich_link_preview(payload)
             return {"contents": [{"uri": uri, "mimeType": "application/json", "text": json.dumps(payload)}]}
         match = re.fullmatch(r"remctl://list/([A-Za-z0-9-]+)", uri)
         if match:
@@ -420,6 +423,34 @@ class Plugin:
             response = self.query({"view": "list", "listId": target["id"], "limit": 100}, ("resource", uuid.uuid4().hex))
             return {"contents": [{"uri": uri, "mimeType": "application/json", "text": json.dumps(response["structuredContent"])}]}
         raise ValueError("Resource not found")
+
+    def enrich_link_preview(self, saved):
+        """Cache missing public artwork outside the protected reminder store."""
+        from remctl_workspace import fetch_public_preview
+        url = saved.get("url", "")
+        directory = self.directory / "link-previews"
+        path = directory / (hashlib.sha256(url.encode()).hexdigest() + ".json")
+        try:
+            cached = json.loads(path.read_text()) if path.exists() else {}
+            if cached.get("expires", 0) > time.time():
+                fetched = cached.get("preview", {})
+            else:
+                try:
+                    fetched = fetch_public_preview(url)
+                except (OSError, ValueError):
+                    fetched = {}
+                directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+                write_private_text_file(path, json.dumps({"expires":time.time() + (7*86400 if fetched.get("image") else 900), "preview":fetched}))
+                # Bound private cached artwork by age and total disk usage.
+                files = sorted(directory.glob('*.json'), key=lambda p:p.stat().st_mtime, reverse=True)
+                size = 0
+                for entry in files:
+                    size += entry.stat().st_size
+                    if size > 64 * 1024 * 1024:
+                        entry.unlink(missing_ok=True)
+            return {**fetched, **{k:v for k,v in saved.items() if v and k != "source"}, "source":saved.get("source") if saved.get("image") else fetched.get("source", "reminders")}
+        except (OSError, ValueError):
+            return saved
 
     def accept_response(self, message):
         with self.lock:

@@ -1,6 +1,7 @@
 import React, {useEffect, useRef, useState} from "react";
 import {Bell, Check, Download, File, Hash, Image, Plus, Radio, RefreshCw, SlidersHorizontal, X} from "lucide-react";
 import {app, call, extensions, RecordData as D} from "./bridge";
+import {useNearViewport} from "./rich-content";
 
 export function TagEditor({value, change, disabled=false}: {value:string;change:(value:string)=>void;disabled?:boolean}) {
   const [text,setText]=useState("");
@@ -18,15 +19,17 @@ export function TagEditor({value, change, disabled=false}: {value:string;change:
 export function AttachmentGallery({item,run}: {item:D;run:(fn:()=>Promise<any>)=>any}) {
   const [images,setImages]=useState<Record<string,string>>({}),[errors,setErrors]=useState<Record<string,string>>({}),[preview,setPreview]=useState<D|null>(null);
   const lightbox=useRef<HTMLDivElement>(null);
+  const {ref: galleryRef, visible: nearViewport} = useNearViewport();
   useEffect(()=>{if(!preview)return;const previous=document.activeElement as HTMLElement;lightbox.current?.focus();return()=>previous?.focus();},[preview]);
   useEffect(()=>{let active=true;setErrors({});setImages({});
+    if (!nearViewport) return;
     for(const a of item.attachments||[])if(a.type==="image"&&a.resourceUri)app.readServerResource({uri:a.resourceUri}).then(result=>{
       const c=result.contents[0];if(active&&"blob" in c)setImages(old=>({...old,[a.resourceUri]:`data:${c.mimeType};base64,${c.blob}`}));
     }).catch(()=>{if(active)setErrors(old=>({...old,[a.resourceUri]:a.resolved===false?"Not downloaded from iCloud":"Preview unavailable"}));});
     return()=>{active=false};
-  },[item.id,item.revision]);
+  },[item.id,item.revision,nearViewport]);
   const download=(index:number)=>run(async()=>{const value=await call("export_attachment",{reminderId:item.id,index});if(extensions.files)await extensions.files.open(value.path);});
-  return <><div className="attachment-gallery">{(item.attachments||[]).map((a:D,index:number)=><div className="attachment-tile" key={a.resourceUri||index}>
+  return <><div ref={galleryRef} className="attachment-gallery">{(item.attachments||[]).map((a:D,index:number)=><div className="attachment-tile" key={a.resourceUri||index}>
     <button className="attachment-preview" aria-label={`Preview ${a.filename||"attachment"}`} disabled={!images[a.resourceUri]} onClick={()=>setPreview({...a,index})}>
       {images[a.resourceUri]?<img src={images[a.resourceUri]} alt={a.filename||"Reminder image"}/>:<File size={28}/>}
     </button><div className="attachment-caption"><span title={a.filename}>{a.filename||"Attachment"}</span><button title="Save to Downloads" aria-label={`Download ${a.filename||"attachment"}`} onClick={()=>download(index)}><Download size={14}/></button></div>
