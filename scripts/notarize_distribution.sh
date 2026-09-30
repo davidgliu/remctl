@@ -57,6 +57,8 @@ for bundle in "$APP" "$INSTALLER"; do
 done
 PAYLOAD="$(mktemp -d "$BUILD/dmg-payload.XXXXXX")"
 /usr/bin/ditto "$APP" "$PAYLOAD/RemCTL Capability Host.app"
+# The installer copies the host into place, so Finder shows only the installer.
+/usr/bin/chflags hidden "$PAYLOAD/RemCTL Capability Host.app"
 # Gatekeeper refuses unsigned scripts and notarization ignores signed ones, so
 # the double-click entry point is a signed app (remctl-installer.swift).
 /usr/bin/ditto "$INSTALLER" "$PAYLOAD/Install RemCTL.app"
