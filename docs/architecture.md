@@ -9,8 +9,12 @@ AI app (Claude Code, Claude Desktop, Cowork, Codex, other MCP clients)
   └─ remctl mcp                      MCP server: stdio, or HTTP behind Tailscale
        └─ remctl <command> --json    one subprocess per tool call
 
+Codex plugin (REMCTL_PLUGIN=1)
+  └─ remctl mcp                      same server, plus workspace tools and UI
+       └─ remctl workspace …         bounded snapshots for the workspace
+
 Terminal, scripts, agents
-  └─ remctl                         the client (Python 3.10+)
+  └─ remctl                         the client (protected Python 3.13; a checkout runs on 3.10+)
        ├─ local commands           completion, doctor, list-symbols, mcp, onboard, permissions, setup
        └─ data commands         sent over an owner-only Unix socket (protocol 2)
 
@@ -33,6 +37,10 @@ Default paths:
 ~/Library/LaunchAgents/net.macstories.remctl.capability-host.plist
 ~/Library/Application Support/RemCTL/capability-host.sock
 ~/.config/remctl/                                     onboarding state, MCP endpoint config
+~/.config/remctl/desktop/                             Codex plugin settings
+~/.config/remctl/events/events.sqlite3                MCP Events subscriptions
+/Library/RemCTL/Python/<content-id>/                  protected Python, shared by installs
+~/Library/Application Support/RemCTL Signing/         certificate for your own builds
 ```
 
 ## Command routing
@@ -87,7 +95,7 @@ Attachments: each attachment row stores a filename, a UTI, pixel dimensions, and
 2. **AppleScript.** Sets flags for `flag`, `unflag`, and ordinary `add --flag`; EventKit has no flag property. Private flag writes use ReminderKit. Also a fallback for a few operations after a recovery check that prevents duplicates. A failed flag write returns an error.
 3. **ReminderKit through `remctl-private`.** Used only with `--private`, plus one automatic case: when EventKit rejects a pure list move (parents with subtasks, shared-list boundaries), RemCTL clones the reminder into the destination with ReminderKit, verifies the clone and its subtasks, and deletes the original. It is not used for permission errors, timeouts, or moves combined with other edits.
 
-`remctl-private` reads one bounded JSON request on stdin, performs one of a fixed set of actions, and saves through the Reminders stack. It never runs a shell, never accepts arbitrary selectors, and never writes the database. It answers a `protocol_version` handshake (currently 2); the client refuses an older helper. Paths that once failed silently now return explicit errors, and the account lookup accepts only CloudKit accounts.
+`remctl-private` reads one bounded JSON request on stdin, performs one of a fixed set of actions, and saves through the Reminders stack. It never runs a shell, never accepts arbitrary selectors, and never writes the database. It answers a `protocol_version` handshake (currently 3). The client needs 2, and 3 for `deleted` and `restore`, and refuses an older helper. Paths that once failed silently now return explicit errors, and the account lookup accepts only CloudKit accounts.
 
 **Address lookup.** `location-lookup` and `--location-address` ask `remctl-bridge` to geocode an address with CoreLocation's public geocoder. The bridge handles that action before it opens EventKit, so it needs no Reminders or Location Services permission, and it cancels the request after a deadline (10 seconds by default). It returns every match with its coordinates, address parts, and region size. The client then decides: it uses a match only when there is exactly one, its region is under about a kilometer, it names the street or place in the query, and the query also gives a town or postal code. Otherwise it stops before any write. The last two checks exist because Apple's geocoder returns one best guess even for a street it did not find. Address lookup contacts Apple; rich-link validation and Reminders synchronization may also use the network.
 
@@ -104,6 +112,8 @@ Every tool builds an argument list for the CLI and spawns `<python> <remctl> <ar
 Cancellation is scoped to the stdio connection or the legacy HTTP session, including stdio calls waiting for a worker. Stateless HTTP requests have separate request-ID namespaces; a cancellation notification cannot cancel a different stateless request by guessing its ID. Partial writes retain their structured result, including created IDs, even when the command exits with an error.
 
 The MCP Apps widget is one HTML file, `remctl_mcp_widget.html`, served as the resource `ui://remctl/reminders-v1.html`. The server attaches the widget to tools and results only for clients that negotiate the `io.modelcontextprotocol/ui` extension, and adds result hints under `_meta["net.macstories.remctl/ui"]` that tell the widget which view to render and which tools its buttons call.
+
+With `REMCTL_PLUGIN=1`, `remctl_plugin.py` adds the Codex workspace: a single built page, `remctl_workspace.html`, served under a content-hashed `ui://remctl/workspace-<hash>.html` URI, plus app-only tools that read snapshots through the hosted `workspace` command (`remctl_workspace.py`). `remctl_events.py` implements MCP Events: while subscriptions exist, the MCP process polls the host for net changes and delivers signed webhooks. Events are advertised in every mode but hidden in the workspace until a client can subscribe; see [the Events notes](notes/events-2026-09-30.md).
 
 The HTTP endpoint requires `Authorization: Bearer <token>`, validates `Origin` and `Host` against loopback and the Mac's Tailscale identity, mirrors the modern headers (`MCP-Protocol-Version`, `Mcp-Method`, `Mcp-Name`) against the body, creates `Mcp-Session-Id` values for legacy clients, and answers `GET /health` without a token. `remctl mcp install --client tailscale` stores the token in `~/.config/remctl/mcp-http.json`, installs the `net.macstories.remctl.mcp-http` LaunchAgent, and runs `tailscale serve` so Tailscale provides HTTPS and the network boundary. [mcp.md](mcp.md) documents the tools and the setup.
 
@@ -143,7 +153,7 @@ The host is the only macOS privacy target: Full Disk Access for the database, Re
 
 ## Private API compatibility contract
 
-`remctl-private` has a read-only `capabilities` action for drift checks. It reports the host OS, the grocery categorization selectors, the generic and custom smart-list fetch selectors, normalized Objective-C encodings when available, and `saveCalled: false`. The grocery check creates an in-memory change object but never saves. Production dispatch is capability-based, as described above. The helper links `ReminderKit`, Foundation, and AppKit only. `scripts/live_private_matrix.py` runs a disposable write, read-back, and cleanup matrix against a live store; see [private-api-audit-2026-08-12.md](private-api-audit-2026-08-12.md) and [macos27-compat-review.md](macos27-compat-review.md) for the audits.
+`remctl-private` has a read-only `capabilities` action for drift checks. It reports the host OS, the grocery categorization selectors, the generic and custom smart-list fetch selectors, normalized Objective-C encodings when available, and `saveCalled: false`. The grocery check creates an in-memory change object but never saves. Production dispatch is capability-based, as described above. The helper links `ReminderKit`, Foundation, and AppKit only. `scripts/live_private_matrix.py` runs a disposable write, read-back, and cleanup matrix against a live store; see [the private API audit](notes/private-api-audit-2026-08-12.md) and [the macOS 27 review](notes/macos27-compat-review.md).
 
 ## Environment overrides
 
@@ -159,6 +169,7 @@ REMCTL_IMAGES=1
 REMCTL_IMAGE_MODE=kitty|iterm2|halfblock|none
 REMCTL_IMAGE_WIDTH=32
 REMCTL_MCP_DEBUG=1
+REMCTL_PLUGIN=1                                # Codex plugin mode for remctl mcp
 NO_COLOR=1
 ```
 

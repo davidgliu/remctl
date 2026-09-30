@@ -1,218 +1,217 @@
-# Installation and Onboarding
+# Installation
 
-RemCTL installs a CLI and a signed **Capability Host** app. The host holds the macOS permissions and starts automatically at login. Both installation routes include the same CLI, Python runtime, helpers and desktop workspace.
+RemCTL installs four things:
+
+- The `remctl` command, in `~/bin`.
+- **RemCTL Capability Host**, a signed app in `~/Applications` that holds the macOS permissions and runs every command that touches Reminders.
+- A background service (a LaunchAgent) that starts the host when you log in.
+- A private copy of Python under `/Library/RemCTL`, which only the host and the CLI use.
+
+Both install routes produce the same result. The difference that matters is who signs the app: MacStories for the download, or a certificate on your Mac for your own build.
 
 ## Requirements
 
-- macOS 14 or later and iCloud Reminders enabled.
-- A Mac administrator password for the protected runtime installation.
-- For source builds only: free Xcode Command Line Tools (`xcode-select --install`). No Apple account, signing subscription, Homebrew or separate Python installation is needed.
+- macOS 14 or later, with iCloud Reminders turned on.
+- Your Mac password, once, to install the protected Python.
+- For your own build only: Apple's free Command Line Tools (`xcode-select --install`).
 
-The current distribution is being validated locally. No downloadable release has been published from this work. Apple silicon source builds have been exercised on macOS 27; Intel and older macOS versions need separate runtime acceptance before release.
+You don't need an Apple account, a developer membership, Homebrew, or your own Python.
 
-## Install the default download
+## Download
 
-Open the release disk image for your Mac and double-click **Install RemCTL.command**. Or, from this checkout:
+Download `RemCTL-arm64.dmg` (Apple silicon) or `RemCTL-x86_64.dmg` (Intel) from [Releases](https://github.com/viticci/remctl/releases), open it, and double-click 'Install RemCTL.command'.
+
+From a checkout, this does the same thing:
 
 ```bash
 ./install.sh --bootstrap
-~/bin/remctl onboard
 ```
 
-The command downloads the matching disk image. Before installing, it checks the app's complete signature, the MacStories Developer ID and macOS Gatekeeper acceptance. It never silently falls back to an unsigned build.
+The installer downloads the disk image for your Mac. Before it installs anything, it checks the app's full signature, confirms it was signed with the MacStories Developer ID, and asks Gatekeeper to accept it. If any of that fails, it stops. It never falls back to an unsigned build.
 
-With `--bootstrap`, an interactive Terminal installation continues straight into guided onboarding. When input or output is redirected, it prints the command to run later instead of opening permission prompts.
-
-To install a previously downloaded app explicitly:
+To install an app you already downloaded:
 
 ```bash
 ./install.sh --prebuilt '/path/to/RemCTL Capability Host.app' --bootstrap
 ```
 
-## Build it yourself for free
+## Build it yourself
 
 ```bash
-xcode-select --install      # once, if the Command Line Tools are missing
+xcode-select --install      # once, if you don't have the Command Line Tools
 ./install.sh --from-source --bootstrap
-~/bin/remctl onboard
 ```
 
-This one command downloads a pinned, checksum-verified Python runtime, compiles the native helpers and host, and signs them with a local certificate. No Apple account is contacted to create that certificate. Build output goes under `.build/`; `--build-output DIRECTORY` selects a new output directory.
+This one command downloads a pinned, checksum-verified Python, compiles the host and helpers, signs them, and installs the result. Build output goes in `.build/`; `--build-output DIRECTORY` picks another folder.
 
-The key lives in `~/Library/Application Support/RemCTL Signing`, in a dedicated keychain with owner-only files. It is not added to your normal keychain search list. Preserve this directory: using the same key keeps the app's signing identity stable across rebuilds. Losing or replacing the key can require granting macOS permissions again. Uninstalling RemCTL preserves it.
+The first build creates a signing certificate without contacting Apple. It lives in `~/Library/Application Support/RemCTL Signing`, in its own keychain with owner-only files, and RemCTL doesn't add it to your normal keychain list. **Keep this folder.** macOS ties your permissions to the certificate, so every future build must use the same one. If you lose it, you'll need to grant permissions again. Uninstalling RemCTL leaves it alone.
 
-Rebuild and update with the same command. Existing installations retain their certificate unless you explicitly choose `--migrate-signing`. `REMCTL_CODESIGN_IDENTITY` selects an existing certificate; `REMCTL_SIGNING_DIRECTORY` selects the local key directory. A separately built local app can be installed with `--prebuilt APP --allow-local-build`; this explicit option still requires a valid certificate signature and rejects ad-hoc signatures.
+A few options for special cases:
 
-## Protected Python permissions
-
-The app carries its matching Python version, so it never runs a random Python from your PATH. The host first verifies whether that exact runtime is already installed in `/Library/RemCTL/Python/<content-id>`. If it is, installation reuses it without a password prompt. A missing runtime requires administrator authorization through `sudo`. A damaged runtime stops installation instead of requesting elevation. The host validates the signed manifest, every file and internal symlink, and root ownership before using it. Ordinary user processes cannot change the installed runtime.
-
-The password is handled by macOS/`sudo`, never stored by RemCTL. The installer does not change permissions on a system or Homebrew Python. Different runtime generations can coexist. Uninstall leaves these shared copies in place.
-
-Maintainers can still select an existing protected Python 3.13+ with `REMCTL_CAPABILITY_PYTHON` for the legacy developer installer. That route requires a stable signing identity. The interpreter and import paths must be root-owned, not group- or world-writable, and have no ACLs. This override is not needed for either normal route.
-
-## Installation paths and rollback
-
-The default CLI is `~/bin/remctl`; the app is `~/Applications/RemCTL Capability Host.app`. The service file is `~/Library/LaunchAgents/net.macstories.remctl.capability-host.plist` and the user-only socket is `~/Library/Application Support/RemCTL/capability-host.sock`. `--bootstrap` also creates first-run configuration. The installer creates `rctl` and `reminders` aliases and installs shell completion.
-
-To use `~/.local/bin`, keep this prefix on every install and upgrade:
-
-```bash
-PREFIX="$HOME/.local" ./install.sh --from-source --bootstrap
-```
-
-A custom prefix also moves the app and socket. The LaunchAgent stays in `~/Library/LaunchAgents` so macOS starts it at login. `REMCTL_LAUNCH_AGENT_DIR` overrides that directory but other locations do not start automatically.
-
-The installer stages and verifies a complete generation before replacing the previous one. It records owned files in `.remctl-install-manifest.json` and restores the previous generation if publication or service startup fails. `--dry-run` builds/verifies without installing the protected runtime, replacing files or starting the service. It does not prove permission readiness.
-
-If the installer prints `PATH action required`, add its line to your shell profile and open a new terminal. `remctl doctor` reports the effective paths and permission state.
+- `REMCTL_CODESIGN_IDENTITY` signs with a certificate you already have.
+- `REMCTL_SIGNING_DIRECTORY` keeps the RemCTL certificate somewhere else.
+- `--prebuilt APP --allow-local-build` installs a local build you made separately. It still requires a real certificate signature; ad-hoc signatures are refused.
 
 ## Onboarding
+
+`--bootstrap` creates RemCTL's config and, in an interactive Terminal window, goes straight into onboarding. If input or output is redirected, it prints the command to run later instead. You can always start (or resume) onboarding with:
 
 ```bash
 remctl onboard
 ```
 
-Onboarding is a guided flow. Each step explains what it does, asks before changing anything, and can be repeated. Running it again shows what is already set up and only asks about what is missing.
+Onboarding explains each step, asks before changing anything, and skips what's already done.
 
-**Step 1: macOS permissions.** RemCTL reads and writes Reminders through the Capability Host, so the host needs three grants:
+1. **macOS permissions.** The host needs three: Reminders and Automation (both standard macOS prompts), and Full Disk Access, which has no prompt. If Full Disk Access is missing, RemCTL opens a helper that shows the exact app to add. See [Permissions](#permissions).
+2. **Health check.** RemCTL confirms the host is ready and reads today's reminders.
+3. **AI apps.** RemCTL looks for Claude Code, Codex, and Claude Desktop, and offers to connect each one it finds. See [the MCP guide](mcp.md). If you'll use the [Codex plugin](desktop-plugin.md), skip Codex here: the plugin brings its own connection.
+4. **Other devices.** Only if Tailscale is installed: RemCTL offers to serve its tools to your other devices over your tailnet. The default answer is no.
 
-- Reminders. The host shows the standard macOS prompt.
-- Automation for the Reminders app. Used for flags, which have no public API. The host shows the standard prompt.
-- Full Disk Access, for the Reminders database. macOS has no prompt for this. If it is missing, RemCTL opens a helper that shows the exact app to add. See [Permissions](#permissions) for the manual steps.
+`--no-mcp` skips steps 3 and 4, and `--no-tailscale` skips step 4. `--json` runs the permission checks and reports everything without asking questions.
 
-The step lists each grant with a check mark or a fix.
-
-**Step 2: Health check.** RemCTL confirms the host is ready and reads today's reminders.
-
-**Step 3: Connect your AI apps.** RemCTL looks for Claude Code, Codex, and Claude Desktop on the Mac. For each one it finds, it asks whether to connect it, then registers the MCP server in that app's configuration. Apps that are already connected show a check mark. See [mcp.md](mcp.md).
-
-**Step 4: Your other devices (optional).** This step appears only when Tailscale is installed. RemCTL offers to serve the MCP tools to your other tailnet devices over HTTPS with a private token, and prints the command to run on those devices. The default answer is no.
-
-Flags: `--no-mcp` skips steps 3 and 4. `--no-tailscale` skips step 4. `--json` runs the permission checks and reports everything, including detected apps, without asking questions or opening the helper.
-
-On a first run, the first data command you type (for example `remctl today`) also runs onboarding automatically when no onboarding state exists yet. That automatic run only does step 1 and prints a hint for the rest. `REMCTL_SKIP_ONBOARD=1` disables it.
-
-After onboarding:
-
-```bash
-remctl doctor
-remctl today
-```
+If you skip onboarding, the first data command you run (say, `remctl today`) runs step 1 for you. `REMCTL_SKIP_ONBOARD=1` turns that off.
 
 ## Permissions
 
-The Capability Host is the single macOS privacy target. Terminal, scripts, AI apps, and the MCP server use its grants through the owner-only socket. Do not grant Reminders, Automation, or Full Disk Access to Terminal, Python, Hermes, Codex, or Claude; they do not need it.
+The Capability Host is the only app that needs permissions. The terminal, scripts, AI apps, and the MCP server all go through it over a socket only your user account can reach. Don't grant Reminders, Automation, or Full Disk Access to Terminal, Python, Codex, Claude, or Hermes; they don't need it.
 
-`remctl doctor --for-agent --json` reports two things: `access.direct` (what the current process could do on its own) and `access.effective` (what RemCTL can do through the host). Use `access.effective` to check readiness. A blocked direct result is normal.
+`remctl doctor` checks everything. For scripts and agents, `remctl doctor --for-agent --json` reports two things: `access.direct` (what the current process could do by itself) and `access.effective` (what RemCTL can do through the host). Only `access.effective` matters. A blocked direct result is normal.
 
 ### Full Disk Access by hand
 
-If the helper does not open, or you closed it:
+If the helper didn't open, or you closed it:
 
 ```bash
 remctl permissions full-disk-access
 ```
 
-The helper opens System Settings and shows the exact host app path. In the Full Disk Access list:
-
-1. Click `+`.
-2. Drag the host row from the helper into the file picker, or press Command-Shift-G, paste the path (`~/Applications/RemCTL Capability Host.app` for a default install), press Return, and click Open.
-3. Restart the host so it picks up the grant:
-
-   ```bash
-   launchctl kickstart -k "gui/$(id -u)/net.macstories.remctl.capability-host"
-   ```
-
-4. Run `remctl doctor`.
-
-Restart the host only after changing Full Disk Access. Reminders and Automation grants take effect immediately.
-
-### Automation state
-
-The host caches the Automation result after it has seen a definitive answer (`authorized`, `denied`, or `notDetermined`). A freshly started host that cannot reach the Reminders app may report `targetNotRunning` or `unknown` until it verifies the state; `fullReady` stays false until then. Reminders does not need to stay open between commands. `doctor` waits up to three seconds for a starting host to finish verifying, then reports a permission it still cannot read as a warning rather than a failure, because the host clears that state on its own and reads and writes work meanwhile. A refused or restricted grant is still a failure.
-
-### Limited reads without Full Disk Access
-
-`show`, `search`, `today`, and `upcoming` accept `--via-eventkit`, a read-only path through EventKit that does not need Full Disk Access. It is never selected automatically. It returns `eventKitId` values, not RemCTL numeric ids, and omits sections, tags, private metadata, and table output. Use it for recovery, not as a setup.
-
-## Connect AI apps
-
-Onboarding offers this. The direct commands:
+The helper opens System Settings → Privacy & Security → Full Disk Access and shows the exact app. Click `+`, then either drag the app from the helper into the file picker, or press Command-Shift-G, paste the path (`~/Applications/RemCTL Capability Host.app` for a default install), press Return, and click 'Open'. Then restart the host so it picks up the change:
 
 ```bash
-remctl mcp install                          # every app found on this Mac
-remctl mcp install --client claude-desktop  # Claude Desktop and Cowork; restart Claude afterwards
-remctl mcp install --client tailscale       # serve to your other devices over Tailscale
-remctl mcp bundle --open                    # one-click .mcpb extension for Claude Desktop
-remctl mcp status
+launchctl kickstart -k "gui/$(id -u)/net.macstories.remctl.capability-host"
+remctl doctor
 ```
 
-The server needs no extra permissions because every tool runs the installed `remctl` through the host. [mcp.md](mcp.md) has the tool list, the Tailscale setup, and troubleshooting.
+Only Full Disk Access needs a restart. Reminders and Automation take effect right away.
+
+### Automation right after a restart
+
+A host that just started may report Automation as `targetNotRunning` or `unknown` until it can check with the Reminders app. `doctor` waits up to three seconds, then reports a state it still can't read as a warning, not a failure: reads and writes work in the meantime, and the host clears it on its own. Reminders doesn't need to stay open. A refused grant is still a failure.
+
+### Reading without Full Disk Access
+
+`show`, `search`, `today`, and `upcoming` accept `--via-eventkit`, a read-only path that doesn't need Full Disk Access. RemCTL never picks it automatically. It returns `eventKitId` values instead of RemCTL's numeric ids, and it has no sections, tags, private metadata, or table output. It's meant for recovery, not everyday use.
 
 ## Upgrading
 
-`git pull` updates the checkout only. The installed copy is separate.
+`git pull` only updates your checkout; the installed copy updates when you run the installer. Find your current setup below (`remctl --version` tells you the version).
+
+| You have | Do this |
+| --- | --- |
+| RemCTL 2.0 from the download | Download the new release and run 'Install RemCTL.command' again, or run `./install.sh` from a checkout. |
+| RemCTL 2.0 you built yourself | `git pull`, then `./install.sh --from-source`. |
+| A 2.0 prerelease installed from `main` with your own Apple Development certificate | `git pull`, then `./install.sh --from-source`. |
+| RemCTL 1.7.1 | See [Upgrading from 1.7.1](#upgrading-from-171). |
+| RemCTL 1.7.0 or older | See [Upgrading from older versions](#upgrading-from-older-versions). |
+
+Then check it:
 
 ```bash
-git pull
-./install.sh
 hash -r
 remctl --version
 remctl doctor
 ```
 
-For source builds use `./install.sh --from-source`. Updates retain the existing certificate. Switching between a source build and a public release requires `--migrate-signing`; macOS may require new grants for the new identity. Run `remctl onboard` again only if `doctor` reports a permission problem. If the HTTP endpoint is loaded, the installer restarts it and verifies its new process and health response. If this step fails, the installer reports the failure; inspect `remctl mcp status` and repair the endpoint with `remctl mcp install --client tailscale`. Existing stdio connections keep their imported code until the client reconnects or starts a new session.
+An update that keeps the same signature keeps your permissions, so you only need `remctl onboard` again if `doctor` reports a problem. The prerelease row works because `--from-source` reuses the certificate your earlier install recorded. If you installed with a custom prefix, use the same one again (for example, `PREFIX="$HOME/.local" ./install.sh --from-source`).
 
-For an install under `~/.local/bin`, keep the same prefix: `PREFIX="$HOME/.local" ./install.sh`.
+After an upgrade:
 
-### Switching signing identities
-
-A free build and the notarized release have different signing identities. macOS can retain the old identity's Full Disk Access entry even when the replacement has the same app name and its switch is on. Adding the new app to that existing entry may not update the saved identity.
-
-If `doctor` still reports denied Full Disk Access after an intentional `--migrate-signing` installation:
-
-1. Open System Settings → Privacy & Security → Full Disk Access.
-2. Select **RemCTL Capability Host** and remove that entry with `−`. Authenticate if macOS asks.
-3. Use `+` to add the exact installed app shown by `remctl permissions full-disk-access` and enable its switch.
-4. Restart the host using the command above, then run `remctl doctor --for-agent`.
-
-The workspace cannot read the Reminders database while this grant is missing. Once the health check passes, click **Refresh** in the workspace. Ordinary updates that keep the same signing identity should not need this migration.
+- AI apps that already had RemCTL open keep running the old code until they reconnect or you start a new session.
+- If the Tailscale endpoint is running, the installer restarts it and checks that it's healthy. If that fails, run `remctl mcp status` and repair it with `remctl mcp install --client tailscale`.
+- Codex plugin users should refresh the plugin. See [Updating the plugin](desktop-plugin.md#update).
 
 ### Upgrading from 1.7.1
 
-Release 1.7.1 had no Capability Host and no ownership manifest. The first 2.0 install over it works like a first install:
-
-1. Run `./install.sh` with the same prefix as the old install.
-2. If it refuses because of unmanifested files, inspect every RemCTL path in that bin directory. Confirm they are the official 1.7.1 files, the `rctl` and `reminders` aliases, and the compiled helpers. Move anything else out of the way.
-3. Run `./install.sh --adopt-existing-install` once.
-4. Run `remctl onboard`, complete Full Disk Access if asked, restart the host, and run `remctl doctor`.
-
-`--adopt-existing-install` accepts exactly the official 1.7.1 files or a reviewed prerelease host. It is not a general migration path and should not be used for routine upgrades.
-
-## PATH
+RemCTL 1.7.1 had no Capability Host and didn't record which files it installed, so the new installer won't replace them on its own. Tell it to take them over, once:
 
 ```bash
-which remctl rctl reminders
-remctl --version
+git pull
+./install.sh --from-source --adopt-existing-install --bootstrap
 ```
 
-If `which remctl` finds nothing, add the installer's PATH line to your shell profile and open a new terminal. If it finds `~/.local/bin/remctl`, keep using `PREFIX="$HOME/.local"` for upgrades.
+Use the same prefix as your old install. `--adopt-existing-install` only accepts the exact files 1.7.1 shipped. If anything differs, it stops and lists the RemCTL files it found; move anything you changed out of the way and try again. Don't use this flag for routine upgrades.
 
-## Shell completion
+Because the host is new, onboarding asks for permissions once. You can remove the Reminders and Full Disk Access grants you gave Terminal for 1.x afterwards; RemCTL doesn't use them anymore.
+
+### Upgrading from older versions
+
+Remove the old version with its own uninstaller before pulling, then install as new:
+
+```bash
+./uninstall.sh --keep-config
+git pull
+./install.sh --from-source --bootstrap
+```
+
+### Switching between the download and your own build
+
+The download and your own build are signed by different certificates, and macOS treats them as different apps. The installer refuses to switch unless you ask:
+
+```bash
+./install.sh --migrate-signing                 # to the download
+./install.sh --from-source --migrate-signing   # to your own build
+```
+
+Reminders and Automation prompt again during onboarding. Full Disk Access usually needs a manual fix, because macOS can keep the old app's entry (with the same name and the switch still on) and ignore the new one:
+
+1. Open System Settings → Privacy & Security → Full Disk Access.
+2. Select 'RemCTL Capability Host' and remove it with `−`.
+3. Click `+`, add the exact app shown by `remctl permissions full-disk-access`, and turn it on.
+4. Restart the host with the `launchctl kickstart` command above, then run `remctl doctor`.
+
+If you use the Codex workspace, click 'Refresh' there once `doctor` passes.
+
+## Where things go
+
+| What | Default location |
+| --- | --- |
+| CLI and aliases (`rctl`, `reminders`) | `~/bin` |
+| Capability Host | `~/Applications/RemCTL Capability Host.app` |
+| Background service | `~/Library/LaunchAgents/net.macstories.remctl.capability-host.plist` |
+| Socket | `~/Library/Application Support/RemCTL/capability-host.sock` |
+| Settings | `~/.config/remctl` |
+| Protected Python | `/Library/RemCTL/Python/<content-id>` |
+| Build certificate | `~/Library/Application Support/RemCTL Signing` |
+
+To install under `~/.local` instead, set `PREFIX` on every install and upgrade:
+
+```bash
+PREFIX="$HOME/.local" ./install.sh --from-source --bootstrap
+```
+
+A custom prefix moves the CLI, app, and socket. The LaunchAgent stays in `~/Library/LaunchAgents`, because that's where macOS looks at login. For finer control, `REMCTL_BIN_DIR`, `REMCTL_APP_DIR`, and `REMCTL_LAUNCH_AGENT_DIR` override each location; use the same overrides for every upgrade. The Codex plugin expects the default `~/bin/remctl`; see [the plugin guide](desktop-plugin.md#custom-install-locations) if you change it.
+
+Don't copy files by hand. That skips the signed host, the protected Python, the background service, and the socket.
+
+### How the installer protects you
+
+The installer builds and verifies a complete new copy before it replaces anything. It records every file it owns in `.remctl-install-manifest.json`, refuses to overwrite files it doesn't recognize, and restores the previous version if anything fails, including starting the service. `--dry-run` builds and verifies without installing anything; it doesn't check permissions.
+
+The protected Python is part of the same protection. The host only runs a Python whose every file matches a signed manifest, is owned by the system, and can't be changed by your user account. If that exact copy is already installed, the installer reuses it without asking for your password. If it's missing, the installer asks for your password through `sudo` (RemCTL never stores it). If it's damaged, the installer stops instead of asking. It never touches a system or Homebrew Python, and older copies stay in place for other installs that use them.
+
+Maintainers can still point the legacy developer installer at an existing protected Python 3.13+ with `REMCTL_CAPABILITY_PYTHON`. It must be owned by root, not group- or world-writable, and have no ACLs. Normal installs don't need this. Some python.org installers leave the version folder group-writable; if the installer reports that, remove group write from that exact version tree (for example, `sudo chmod -R g-w /Library/Frameworks/Python.framework/Versions/3.13`) and check again after every Python update. Don't do this to Homebrew or other shared folders.
+
+## PATH and shell completion
+
+If `remctl` isn't found after installing, the installer printed a line like "Add /Users/you/bin to PATH". Add that folder to your shell profile and open a new Terminal window. `which remctl` shows which copy you're running; if it's `~/.local/bin/remctl`, keep using `PREFIX="$HOME/.local"` for upgrades.
+
+The installer sets up shell completion (`--shell-completions none` skips it). To set it up again:
 
 ```bash
 remctl setup --shell auto
 ```
 
-For zsh, setup installs `_remctl` under `~/.zsh/completions` and prints the two lines to add to `~/.zshrc`:
-
-```zsh
-fpath=(~/.zsh/completions $fpath)
-autoload -Uz compinit && compinit
-```
-
-`remctl doctor` warns (`completion_fpath`) when that directory is not on `fpath`. Manual alternatives:
+For zsh, this installs `_remctl` under `~/.zsh/completions` and prints the two lines to add to `~/.zshrc`. `remctl doctor` warns (`completion_fpath`) if that folder isn't on your `fpath`. You can also load completion directly:
 
 ```bash
 eval "$(remctl completion zsh)"
@@ -220,27 +219,20 @@ eval "$(remctl completion bash)"
 remctl completion fish | source
 ```
 
-## Custom installation
-
-Do not copy the script and helpers by hand. That skips the sealed runtime, the signed host identity, the LaunchAgent, and the socket. Use the installer overrides instead:
-
-```bash
-PREFIX="$HOME" \
-REMCTL_BIN_DIR="$HOME/bin" \
-REMCTL_APP_DIR="$HOME/Applications" \
-REMCTL_LAUNCH_AGENT_DIR="$HOME/Library/LaunchAgents" \
-./install.sh --bootstrap
-```
-
-Use the same overrides for every later upgrade.
-
 ## Uninstall
 
+Disconnect AI apps and remove the Codex plugin first, because the plugin is served from inside the app:
+
 ```bash
-remctl mcp remove            # disconnect AI apps and the tailnet endpoint first
-./uninstall.sh
+remctl mcp remove
+codex plugin remove remctl@remctl-local
+codex plugin marketplace remove remctl-local
 ```
 
-The uninstaller checks that every file it removes belongs to RemCTL. It stops the host LaunchAgent, removes the app, the socket, the installed files, and empty completion directories. `--dry-run` shows the plan; `--keep-config` keeps `~/.config/remctl`. It does not edit your shell profile or revoke macOS permissions.
+Then run the uninstaller from a checkout (`./uninstall.sh`) or from inside the installed app:
 
-Protected Python copies under `/Library/RemCTL/Python` and the source-signing key under `~/Library/Application Support/RemCTL Signing` are retained. Do not remove shared runtimes while another installation references them.
+```bash
+~/Applications/"RemCTL Capability Host.app"/Contents/Resources/Distribution/uninstall.sh
+```
+
+It checks that every file belongs to RemCTL before removing it. It stops the host and removes the app, the LaunchAgent, the socket, the CLI, and `~/.config/remctl`. `--keep-config` keeps your settings, and `--dry-run` shows the plan without changing anything. It leaves the protected Python and your build certificate in place, and it doesn't edit your shell profile or revoke macOS permissions.

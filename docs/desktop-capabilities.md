@@ -1,39 +1,38 @@
-# Desktop capability coverage
+# Workspace capabilities
 
-This maps every user-facing RemCTL command family to its desktop surface. A typed action is a validated form in the command palette; it is available even when the common operation also has a direct control. CLI formatting flags are represented by the interface or export formats rather than separate switches.
+This maps every RemCTL command to where it lives in the [Codex workspace](desktop-plugin.md). A "form" is a validated form in the ⌘K command palette. Forms exist even for things that also have a direct control. Output flags such as `--format` map to the workspace's views and export formats instead.
 
-| RemCTL commands | Desktop surface |
+| RemCTL commands | In the workspace |
 | --- | --- |
-| `today`, `upcoming`, `overdue`, `flagged`, `urgent`, `show`, `search` | Sidebar, search, calendar and command palette. Urgent and Overdue have dedicated palette destinations. |
-| `info`, `add`, `edit`, `done`, `undone`, `flag`, `unflag`, `delete` | Click-to-open inspector, quick entry, row controls, menus and bulk selection. |
-| `subtasks`, `reminder-move` | Expandable hierarchy, inspector subtask creation, parent/section/list moves and typed ordering controls. |
-| `tags` | Inspector chips, suggestions, clickable row tags, search and smart filters. |
-| `lists`, `list-info`, `list-create`, `list-edit`, `list-rename`, `list-delete`, `list-pin`, `list-unpin` | Sidebar, appearance/type editor, list context menus and typed actions. |
-| `list-symbols` | Actual local Reminders symbols, emoji and colors; 71 symbols in the appearance picker. |
-| `groups`, `group-info`, `group-create`, `group-edit`, `group-delete` | Grouped sidebar, list drag into groups, group menus and typed actions. |
-| `sections`, `section-create`, `section-rename`, `section-delete` | List section headings, columns, section menus, drag moves and typed actions. |
-| `sharees` | Inspector assignment picker and native rich form, populated from actual list members. |
-| `location-lookup` | Typed location search; location address/coordinate/radius/proximity editing in the inspector. |
-| `smart-lists`, `smart-list-create`, `smart-list-edit`, `smart-list-delete` | Sidebar and visual all/any editor with preview: flags, priorities, tag include/exclude/untagged, absolute/relative/no-date, time/no-time, multiple list include/exclude, location and car rules. JSON remains available for exact filter editing. |
-| `templates`, `template-info`, `template-create`, `template-apply`, `template-delete` | Template browser, review/apply controls, list menus and typed actions. |
-| Groceries fields on `add`, `edit`, `list-create`, `list-edit` | List type/language controls, item categorization and typed forms. |
-| Images and rich links on `add` / `edit` | Drop images/links, native file picker, inspector gallery/lightbox, open existing links, add another link. Save existing attachments to Downloads, up to 50 MiB. Image writes support PNG/JPEG/WebP/HEIC up to 8 MiB each. |
-| `deleted`, `restore` | Recently Deleted with identity-preserving restore and destination-list selection. |
-| `link`, `open` | Copy plugin link, Open in Reminders and typed Reminder Links. |
-| `stats` | Reminder Statistics in the command palette. |
-| `export`, `import` | `.remctl`, JSON and CSV export; rich `.remctl` file viewer/editor and reviewed import. |
-| `doctor`, `onboard`, `setup`, `permissions` | Settings diagnostics and plugin onboarding; OS permission steps remain in the signed host's existing onboarding flow. |
-| `completion`, `mcp`, `workspace` | Shell/client installation and internal transport operations; intentionally not presented as task-management controls. |
+| `today`, `upcoming`, `overdue`, `flagged`, `urgent`, `show`, `search` | Sidebar, search, calendar, and command palette. Urgent and Overdue have their own palette entries. |
+| `info`, `add`, `edit`, `done`, `undone`, `flag`, `unflag`, `delete` | Inspector, new reminder panel, row controls, right-click menus, and multiple selection. |
+| `subtasks`, `reminder-move` | Nested subtasks, subtask creation in the inspector, moves between parents, sections, and lists, and ordering forms. |
+| `tags` | Inspector tag chips with suggestions, clickable tags on rows, search, and smart-list filters. |
+| `lists`, `list-info`, `list-create`, `list-edit`, `list-rename`, `list-delete`, `list-pin`, `list-unpin` | Sidebar, pin buttons, the appearance editor, list menus, and forms. |
+| `list-symbols` | Your Mac's own Reminders symbols (71 of them), plus emoji and colors, in the appearance picker. |
+| `groups`, `group-info`, `group-create`, `group-edit`, `group-delete` | Grouped sidebar, dragging lists into groups, group menus, and forms. |
+| `sections`, `section-create`, `section-rename`, `section-delete` | Section headings, columns, section menus, drag and drop, and forms. |
+| `sharees` | The assignment picker, filled with the shared list's real members. |
+| `location-lookup` | Location search, plus address, coordinates, radius, and arriving/leaving in the inspector. |
+| `smart-lists`, `smart-list-create`, `smart-list-edit`, `smart-list-delete` | Sidebar and a visual editor with preview: flags, priorities, tags (including exclusions and untagged), absolute, relative, and no-date rules, times, lists, locations, and car rules. The raw filter JSON is still editable. |
+| `templates`, `template-info`, `template-create`, `template-apply`, `template-delete` | Template browser, list menus, and forms. |
+| Groceries options on `add`, `edit`, `list-create`, `list-edit` | List type and language controls, item categories, and forms. |
+| `--image` and rich links on `add` and `edit` | Drag and drop, the file picker, the inspector gallery and preview, and saving attachments to Downloads (up to 50 MB). New images can be PNG, JPEG, WebP, or HEIC, up to 8 MB each. |
+| `deleted`, `restore` | Recently Deleted, which restores reminders with their original ids into a list you choose. |
+| `link`, `open` | 'Copy link', 'Open in Reminders', and link forms. |
+| `stats` | 'Reminder Statistics' in the command palette. |
+| `export`, `import` | `.remctl`, JSON, and CSV export, plus a `.remctl` viewer and editor with a reviewed import. |
+| `doctor`, `onboard`, `setup`, `permissions` | Diagnostics in settings and the plugin's first-run check. macOS permissions still go through `remctl onboard`. |
+| `completion`, `mcp`, `workspace` | Not in the workspace. These set up shells, AI apps, and the plugin itself. |
 
-Recurrence, Early Reminders, alarms, urgency, locations, assignment and clear/reset operations remain available in the complete typed Reminder Fields form as well as their direct inspector controls. The command palette, right-click menus, keyboard navigation, multiple selection, drag moves, selected-context chips, native rich forms, file subscriptions and conversation handoff are desktop additions.
+Repeat rules, Early Reminders, alarms, urgent state, locations, assignment, and clearing fields are also in the full Reminder Fields form. The command palette, right-click menus, keyboard navigation, multiple selection, drag and drop, conversation context, and file viewer are workspace extras with no CLI equivalent.
 
-## Runtime boundaries
+## Limits
 
-- Car rules can be written, but local previews/reads explicitly reject unavailable car-alarm metadata. They do not pretend to match.
-- Assignment needs real members of a shared list. No existing shared list was modified during acceptance.
-- Existing general attachments can be downloaded; RemCTL's write support is for images and rich links. Arbitrary file attachment creation/removal is not claimed.
-- Smart-list renaming is not offered because the underlying CLI does not support it. Identity, filter, color, emoji and symbol editing follow the CLI contract.
-- `.remctl` import copies supported fields into new reminders. It is not a lossless backup restore; omitted fields are shown before import.
-- Private ReminderKit features depend on the installed macOS implementation and require the existing Advanced Reminders setting.
-- [MCP Events](desktop-events.md) is deferred. The protocol implementation remains in the source, but Activity and Watch entry points are hidden and no native event automation is claimed.
-
+- Smart lists with car rules can be saved, but previews and reads return an error because Reminders doesn't expose the car metadata RemCTL would need.
+- Assignment needs a shared list with real members. It wasn't tested on a shared list with other people.
+- Any existing attachment can be downloaded. New attachments are limited to images and links.
+- Smart lists can't be renamed, because the CLI can't rename them. You can change their filter, color, emoji, and symbol.
+- `.remctl` import creates new copies of the supported fields. It isn't a backup restore, and it lists the fields it leaves out before you import.
+- Private ReminderKit features depend on your macOS version and need 'Advanced Reminders features' turned on.
+- MCP Events is built but turned off. See the [Events notes](notes/events-2026-09-30.md).

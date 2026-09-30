@@ -33,16 +33,18 @@ run({"args":["sections","--json"]})
 run({"args":["edit","23880","--private","--set-tags","remctl,work","--json"]})
 ```
 
-The command syntax below documents the underlying options; it is not an instruction to use the shell. Use the named dedicated MCP tool where available, otherwise translate that syntax into `run.args`, omitting the `remctl` executable. Read [docs/mcp.md](docs/mcp.md) for the current typed argument contract and connection details. Inspect the live tool schema before a call. `create_reminder` and `update_reminder` take `private: true` for synced tags, rich links, sections, subtasks, assignment, Early Reminders, urgent state, and location alarms; without it those fields are refused, `url` is appended to the notes, and `create_reminder`'s `tags` become `#hashtags`. Images, Groceries sorting, ordering, groups, smart lists, and templates still use `run`.
+The command syntax below documents the underlying options; it is not an instruction to use the shell. Use the named dedicated MCP tool where available, otherwise translate that syntax into `run.args`, omitting the `remctl` executable. Read [docs/mcp.md](docs/mcp.md) for the current typed argument contract and connection details. Inspect the live tool schema before a call. `create_reminder` and `update_reminder` take `private: true` for synced tags, rich links, sections, subtasks, assignment, Early Reminders, urgent state, Groceries categorization, and location alarms; without it those fields are refused, `url` is appended to the notes, and `create_reminder`'s `tags` become `#hashtags`. `update_list` converts Groceries lists with `private: true`. Images, ordering, groups, smart lists, and templates still use `run`.
 
 ## Setup and diagnosis
 
-Install and onboard once:
+Install and onboard once. The user either runs 'Install RemCTL.command' from the release disk image, or builds from a checkout:
 
 ```bash
-cd /path/to/remctl && ./install.sh --bootstrap
+cd /path/to/remctl && ./install.sh --from-source --bootstrap
 remctl onboard
 ```
+
+Plain `./install.sh` downloads and installs the notarized release instead. Both routes ask for the user's administrator password once, to install RemCTL's protected Python.
 
 `onboard` is a guided flow: macOS permissions, a health check, connecting AI apps on the Mac, and optionally serving the tools to the user's other devices over Tailscale. It asks before each change. `onboard --json` runs the checks and reports detected apps without asking. If it opens the Full Disk Access helper, pause: the user must add the exact host app (`capabilityHost.app.path` from `doctor`) in System Settings, then restart the host:
 
@@ -69,7 +71,9 @@ remctl mcp status
 remctl mcp config --format tailscale         # commands and token for another device
 ```
 
-Upgrades: `git pull && ./install.sh`, then `doctor`. Run `onboard` again only when `doctor` reports a permission problem. Do not copy or re-sign the host app by hand, and do not reset macOS privacy records as a routine fix. Never grant Full Disk Access, Reminders, or Automation to Terminal, Python, Hermes, Codex, or Claude; only the host needs them.
+The Codex plugin provides its own RemCTL connection. If the user has it, don't also add `remctl mcp install --client codex`; remove that duplicate with `remctl mcp remove --client codex`. See [docs/desktop-plugin.md](docs/desktop-plugin.md).
+
+Upgrades keep the install's signing route: `git pull && ./install.sh --from-source` for a build from source (including 2.0 prereleases signed with an Apple Development certificate), or the new release's 'Install RemCTL.command' (or `./install.sh`) for the download. The installer refuses a signing change without `--migrate-signing`; do not add that flag unless the user asks to switch, because it means granting Full Disk Access again. From 1.7.1, the first install needs `--adopt-existing-install` once. Then run `doctor`. Run `onboard` again only when `doctor` reports a permission problem. Do not copy or re-sign the host app by hand, and do not reset macOS privacy records as a routine fix. Never grant Full Disk Access, Reminders, or Automation to Terminal, Python, Hermes, Codex, or Claude; only the host needs them.
 
 ## Rules that always apply
 
@@ -119,12 +123,12 @@ Row fields: `id`, `title`, `list`, `completed`, `flagged`, `urgent`, `priority`,
 - `create_reminder` returns `status: "created"`, the numeric `id` for the next call, and the CloudKit `cloudKitId`. The CLI's `add --json` names them differently: `id` is the UUID and `numericId` is the number. If the number could not be read back, `create_reminder` has no `id` and warns `numeric_id_unavailable`; find the reminder with `search` or `show_list` by title.
 - `add -f/--flag` creates the reminder first and flags it through automation. If the flag step fails, the result is still `created` with `warnings: ["flag_not_set: …"]`. Do not run `add` again; flag the returned id instead.
 - `edit -l` and `edit --list-id` normally keep the id. When EventKit refuses a pure move (parents with subtasks, shared-list boundaries), RemCTL clones and deletes through ReminderKit and returns `method: "clone-delete"`, `oldId`, and a new `id`. Continue with the new `id`. Move first, then apply other edits.
-- `edit -d` moves the absolute alarms that matched the old due time, so the time shown in Reminders follows the due date. Reminders can keep one copy of an alarm for each device that handled it, and every copy moves. When the reminder has any other alarm, its alarms stay as they are. `edit -d clear` removes those alarms, but a repeating reminder must keep its due date: `edit` refuses with `code: "repeating_reminder_requires_due_date"` and changes nothing.
+- `edit -d` moves the absolute alarms that matched the old due time, so the time shown in Reminders follows the due date. Reminders can keep one copy of an alarm for each device that handled it, and every copy moves. When the reminder has any other alarm, its alarms stay as they are. `edit -d clear` removes those alarms, but a repeating reminder must keep its due date: `edit` refuses with `code: "repeating_reminder_requires_due_date"` and changes nothing, unless the same edit also passes `--recurrence clear`.
 - `done --date` takes only `YYYY-MM-DD` or `YYYY-MM-DD HH:MM` and is rejected for recurring reminders; plain `done` advances the series.
 - `flag`/`unflag` succeed with `status: "flagged"` or `"unflagged"`, or fail with exit 1 and `code: "applescript_flag_failed"` on stderr, flag unchanged. Common causes: the host lacks Automation access, or Reminders did not answer within 120 seconds. `edit ID --private --flagged` or `--no-flagged` writes the flag through ReminderKit instead.
 - `reminder-move` needs `--private`. Within one list, the anchor must be in the same list. `--smart-list NAME` or `--smart-list-id ID` reorders an unsectioned custom smart list; sectioned smart lists are refused. Success returns `verified: true`.
 
-Recurrence grammar: `daily`, `weekly`, `monthly`, `yearly`; an interval right after the frequency (`daily x2`, N 1 to 999); weekdays for weekly (`weekly mon,wed,fri`); day numbers (`monthly 1,15`) or ordinal weekdays (`monthly 4th-fri`, `monthly 1st-mon,3rd-mon`, `monthly last-fri`) for monthly, never mixed. Prefer `last-fri` to `5th-fri`. Invalid recurrence, alarm, and priority values fail before writing. Recurrence and relative alarms (`15m`, `1h`, `1d`) need a due date: pass `-d` (MCP `due`) with `add`, while `edit` can also use the due date the reminder already has. Without one, a relative alarm stops with `code: "relative_alarm_requires_due_date"` and Reminders refuses to save a repeating reminder; nothing is written.
+Recurrence grammar: `daily`, `weekly`, `monthly`, `yearly`; an interval right after the frequency (`daily x2`, N 1 to 999); weekdays for weekly (`weekly mon,wed,fri`); day numbers (`monthly 1,15`) or ordinal weekdays (`monthly 4th-fri`, `monthly 1st-mon,3rd-mon`, `monthly last-fri`) for monthly, never mixed. Prefer `last-fri` to `5th-fri`. `edit --recurrence clear` (or `none`, `never`) removes a repeat rule. Invalid recurrence, alarm, and priority values fail before writing. Recurrence and relative alarms (`15m`, `1h`, `1d`) need a due date: pass `-d` (MCP `due`) with `add`, while `edit` can also use the due date the reminder already has. Without one, a relative alarm stops with `code: "relative_alarm_requires_due_date"` and Reminders refuses to save a repeating reminder; nothing is written.
 
 ## Recently Deleted
 
@@ -197,7 +201,7 @@ When debugging a date mismatch, compare `dueDate`, `displayDate`, and `alarms` b
 | `code: "applescript_flag_failed"` | Flag unchanged | Check the host's Automation grant with `doctor`; or use `edit --private --flagged` |
 | Several lists match | Ambiguous list name | Use `--list-id` |
 | Capability Host unavailable or not ready | Host stopped or permissions missing | `remctl doctor --for-agent --json`, then the fix it prints; reinstall if the protocol is not 2 |
-| `remctl-private is outdated` | Sealed helper older than the CLI | `./install.sh` |
+| `remctl-private is outdated` | Sealed helper older than the CLI | Reinstall with the same route: `./install.sh --from-source` or the latest release |
 
 ## Permissions
 

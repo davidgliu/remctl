@@ -14,11 +14,11 @@ Hermes bundles a skill named `apple-reminders`. That skill runs [`remindctl`](ht
 | Reads | Reminders' local database: sections, subtasks, tags, rich links, attachments, Early Reminders, display dates | Public EventKit only |
 | Writes | EventKit, plus opt-in ReminderKit (`private: true`) for sections, synced tags, rich links, subtasks, assignment, Early Reminders, urgent state, images, groups, smart lists, and templates | Public EventKit only |
 
-[remindctl-comparison-2026-09-26.md](remindctl-comparison-2026-09-26.md) compares the two feature by feature, with sources.
+[The remindctl comparison](notes/remindctl-comparison-2026-09-26.md) compares the two feature by feature, with sources.
 
 ## Connect RemCTL
 
-1. Install and onboard RemCTL on the Mac, if you have not: `./install.sh --bootstrap`, then `remctl onboard`. See [installation.md](installation.md).
+1. Install RemCTL on the Mac and finish onboarding, if you haven't. See [installation](installation.md).
 2. Print the Hermes entry:
 
    ```bash
@@ -30,7 +30,7 @@ Hermes bundles a skill named `apple-reminders`. That skill runs [`remindctl`](ht
    ```yaml
    mcp_servers:
      remctl:
-       command: "/opt/homebrew/opt/python@3.14/bin/python3.14"
+       command: "/Library/RemCTL/Python/<content-id>/bin/python3.13"
        args: ["/Users/you/bin/remctl", "mcp"]
        timeout: 300  # RemCTL's batch tools allow up to 300 seconds
    ```
@@ -38,7 +38,7 @@ Hermes bundles a skill named `apple-reminders`. That skill runs [`remindctl`](ht
 3. Merge it into `mcp_servers` in `~/.hermes/config.yaml`. If the file already has an `mcp_servers:` key, add only the `remctl:` block under it.
 4. Run `hermes mcp test remctl` to check the connection. Then start a new Hermes session. Hermes lists the tools as `remctl` tools: `today`, `search`, `create_reminder`, `set_completion`, and the rest in [mcp.md](mcp.md#tools).
 
-The command uses an absolute Python path so it works when Hermes starts with a minimal `PATH`. For a Homebrew Python it is the stable `opt` path, so `brew upgrade` does not break it.
+The command uses RemCTL's protected Python by absolute path, so it works when Hermes starts with a minimal `PATH`. If a RemCTL upgrade ships a new Python, that path changes: print the entry again and update your Hermes config.
 
 Hermes connects to a stdio server with the older `initialize` handshake by default and falls back to the 2026-07-28 revision. RemCTL answers both, so the default `protocol: auto` works.
 

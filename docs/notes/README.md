@@ -1,0 +1,14 @@
+# Development notes
+
+These are dated engineering records: audits, reviews, and the evidence behind each validation pass. Each one describes RemCTL as it was on that date, and none of them are kept up to date. For how RemCTL works today, read the [main docs](../../README.md#documentation).
+
+| Note | What it covers |
+| --- | --- |
+| [Private API audit](private-api-audit-2026-08-12.md) | ReminderKit calls, cross-version contracts, and rejected alternatives |
+| [macOS 27 review](macos27-compat-review.md) | Compatibility with macOS 27 |
+| [Runtime review](runtime-review-2026-09-25.md) | MCP and runtime hardening |
+| [remindctl comparison](remindctl-comparison-2026-09-26.md) | RemCTL versus the CLI behind Hermes Agent's Reminders skill |
+| [Distribution validation](distribution-validation-2026-09-30.md) | The notarized download, free builds, signing, and permission continuity |
+| [Desktop validation](desktop-validation-2026-09-30.md) | Acceptance testing of the Codex plugin |
+| [Events](events-2026-09-30.md) | The MCP Events implementation and why it's turned off |
+| [Icon](icon-provenance.md) | How the app icon was made, and its source files |

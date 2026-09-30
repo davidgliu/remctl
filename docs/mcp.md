@@ -10,7 +10,7 @@ AI app  ->  remctl mcp  ->  remctl <command> --json  ->  Capability Host  ->  Re
 
 Two transports:
 
-- **stdio.** The app launches `remctl mcp` as a child process. This is what Claude Code, Codex, and Claude Desktop use on this Mac.
+- **stdio.** The app launches `remctl mcp` as a child process. This is what Claude Code, Codex, Claude Desktop, and the [Codex plugin](desktop-plugin.md) use on this Mac.
 - **Streamable HTTP over Tailscale.** A small HTTPS endpoint, reachable only from devices on your Tailscale network, for Claude Code, Codex, and other clients on your other devices.
 
 ## Connect an app on this Mac
@@ -34,7 +34,7 @@ remctl mcp remove --client codex
 | Hermes Agent | Nothing automatic. `remctl mcp config --format hermes` prints the `mcp_servers` entry for `~/.hermes/config.yaml`. | Paste it, then start a new Hermes session. See [hermes.md](hermes.md). |
 | Other clients | `remctl mcp config` prints JSON, TOML, YAML, and shell snippets. | Paste into the client's MCP settings. |
 
-The launch command uses an absolute Python path so GUI apps with a minimal `PATH` can start the server. `remctl mcp config --format command` shows it. For a Homebrew Python, RemCTL registers the formula's stable `opt` path, such as `/opt/homebrew/opt/python@3.14/bin/python3.14`, not the versioned `Cellar` folder that `brew upgrade` deletes.
+The launch command uses an absolute Python path so GUI apps with a minimal `PATH` can start the server. For a normal install, that's RemCTL's protected Python, `/Library/RemCTL/Python/<content-id>/bin/python3.13`. `remctl mcp config --format command` shows the exact command. (Maintainer installs that use a Homebrew Python get the formula's stable `opt` path, not the versioned `Cellar` folder that `brew upgrade` deletes.)
 
 ### One-click Claude Desktop extension
 
@@ -94,7 +94,7 @@ remctl mcp token --rotate             # new token; reconnect devices afterwards
 remctl mcp remove --client tailscale  # stop serving; the token file stays for later
 ```
 
-`remctl doctor` reports the endpoint under `mcp_clients` and warns (`mcp_tailscale`) when it is configured but not serving, or when its service starts a Python that `brew upgrade` deletes.
+`remctl doctor` reports the endpoint under `mcp_clients` and warns (`mcp_tailscale`) when it is configured but not serving, or when its service starts a Python that's missing or that `brew upgrade` will remove.
 
 Security notes:
 
@@ -119,7 +119,7 @@ Every tool returns `structuredContent` plus the same JSON as a text block, so cl
 | `get_list` | `list` or `list_id` | `list-info LIST --json` |
 | `get_reminder` | `reminder_id`, `include_deleted` (default false) | `info ID [--include-deleted] --json` |
 | `resolve_location` | `query` | `location-lookup --json -- QUERY` |
-| `create_reminder` | `title`, `list` or `list_id`, `notes`, `due`, `priority`, `recurrence`, `alarm`, `url`, `tags`, `flagged`, and with `private: true`: `section`, `section_id`, `new_section`, `subtasks`, `assign`, `early_reminder`, `urgent`, `location_address` or `latitude` and `longitude`, `location_title`, `radius`, `proximity` | `add … --json -- TITLE` |
+| `create_reminder` | `title`, `list` or `list_id`, `notes`, `due`, `priority`, `recurrence`, `alarm`, `url`, `tags`, `flagged`, and with `private: true`: `grocery`, `section`, `section_id`, `new_section`, `subtasks`, `assign`, `early_reminder`, `urgent`, `location_address` or `latitude` and `longitude`, `location_title`, `radius`, `proximity` | `add … --json -- TITLE` |
 | `update_reminder` | `reminder_id` plus one or more of `title`, `list`, `list_id`, `notes`, `due`, `priority`, `recurrence`, `alarm`, `url`, and with `private: true`: `tags`, `set_tags`, `remove_tags`, `clear_tags`, `unassign`, and the `create_reminder` metadata fields | `edit ID … --json` |
 | `set_completion` | `reminder_id` or `reminder_ids` (up to 50), `completed`, optional `completion_date` | `done` or `undone ID… --json` |
 | `set_flagged` | `reminder_id`, `flagged` | `flag` or `unflag ID --json` |
@@ -127,16 +127,16 @@ Every tool returns `structuredContent` plus the same JSON as a text block, so cl
 | `restore_reminder` | `reminder_id`, `list` or `list_id`, `private: true` | `restore ID --list LIST --private --json` |
 | `delete_reminder` | `reminder_id` or `reminder_ids` (up to 50) | `delete ID… --force --json` |
 | `create_list` | `name`, `color`, and with `private: true`: `symbol`, `emoji`, `groceries`, `grocery_locale`, `group` or `group_id` | `list-create … --json -- NAME` |
-| `update_list` | `list` or `list_id`, plus `new_name`, and with `private: true`: `color`, `symbol`, `emoji` | `list-rename` or `list-edit --private` |
+| `update_list` | `list` or `list_id`, plus `new_name`, and with `private: true`: `color`, `symbol`, `emoji`, `groceries` or `standard`, `grocery_locale` | `list-rename` or `list-edit --private` |
 | `doctor` | none | `doctor --for-agent --json` |
 | `run` | `args` (exact CLI arguments), optional `stdin` | that command |
 
 Notes:
 
-- `due` accepts `YYYY-MM-DD` (all day), `YYYY-MM-DD HH:MM` (timed), relative forms such as `tomorrow 09:30` or `+3d`, and `clear` in `update_reminder`. A repeating reminder must keep a due date, so `clear` on one is refused with `repeating_reminder_requires_due_date`.
+- `due` accepts `YYYY-MM-DD` (all day), `YYYY-MM-DD HH:MM` (timed), relative forms such as `tomorrow 09:30` or `+3d`, and `clear` in `update_reminder`. A repeating reminder must keep a due date, so `clear` on one is refused with `repeating_reminder_requires_due_date`, unless the same call also clears its `recurrence`.
 - A relative `alarm` (`15m`, `1h`, `1d`) counts back from the due date. Without one, the call is refused with `relative_alarm_requires_due_date`; an ISO date works without a due date.
 - `completion_date` applies only with `completed: true`.
-- `recurrence` needs a due date. It accepts `daily`, `weekly`, `monthly`, `yearly`, an interval such as `daily x2`, weekdays such as `weekly mon,wed,fri`, month days such as `monthly 1,15`, and ordinal weekdays such as `monthly 4th-fri` or `monthly last-fri`.
+- `recurrence` needs a due date. It accepts `daily`, `weekly`, `monthly`, `yearly`, an interval such as `daily x2`, weekdays such as `weekly mon,wed,fri`, month days such as `monthly 1,15`, and ordinal weekdays such as `monthly 4th-fri` or `monthly last-fri`. It also accepts a recurrence object exported by RemCTL, as a JSON string of up to 4,096 characters. In `update_reminder`, `clear`, `none`, or `never` removes the repeat rule.
 - `run` refuses `mcp`, `onboard`, `setup`, `permissions`, `completion`, and `open` because they are interactive or setup commands, including when top-level options such as `--format json` come first. Include `--json`. Destructive commands need `--force`.
 - Values that start with `-`, such as a search for `-urgent`, are passed as values, never as options.
 - `delete_reminder` is annotated as destructive so hosts ask for confirmation. Supported accounts retain deleted reminders in Recently Deleted for up to 30 days.
@@ -174,6 +174,15 @@ Widget actions are ordinary `tools/call` requests routed through the host, so th
 
 Linkage follows the extension's capability rule. A client that advertises `extensions["io.modelcontextprotocol/ui"].mimeTypes` with the Apps MIME type receives `_meta.ui.resourceUri` on tools and results, the resource in `resources/list`, and result hints under `_meta["net.macstories.remctl/ui"]`. MIME types are compared after normalization, so quoting, spacing, and extra parameters are accepted. Legacy clients that did not negotiate Apps receive only the flat `ui/resourceUri` and `openai/*` aliases. Modern clients without Apps receive nothing extra. `resources/read` always includes the sandbox policy.
 
+## Codex plugin mode
+
+The [Codex plugin](desktop-plugin.md) starts the same server with `REMCTL_PLUGIN=1`. In that mode, the server adds 46 tools to the standard 21, for 67 in total, and replaces the reminders widget with the workspace (`ui://remctl/workspace-<hash>.html`) and its settings. Only `open_workspace` is visible to the model; the other plugin tools are called by the workspace itself:
+
+- Workspace: `open_workspace`, `open_selection`, `open_remctl_file`, `workspace_query`, `workspace_detail`, `search_mentions`, `read_settings`, `update_settings`, `workspace_mutate`, `workspace_catalog`, `export_remctl_file`, `review_import`, `import_remctl_file`, `workspace_attach_image`, `choose_reminder_details`, `event_activity`, `preview_smart_filter`, `export_attachment`.
+- `manage_*` wrappers for groups, sections, sharees, tags, templates, smart lists, moves, pins, list deletion and renaming, stats, subtasks, and links.
+
+The plugin always launches `$HOME/bin/remctl mcp`. See [custom install locations](desktop-plugin.md#custom-install-locations) if RemCTL lives elsewhere.
+
 ## Protocol
 
 The server follows the [2026-07-28 versioning rules](https://modelcontextprotocol.io/specification/2026-07-28/basic/versioning) with support for earlier revisions.
@@ -185,6 +194,8 @@ The server follows the [2026-07-28 versioning rules](https://modelcontextprotoco
 **stdio.** One JSON-RPC message per line. Requests are served concurrently by a small worker pool, so a slow tool call never blocks `ping`. `notifications/cancelled` terminates the tool's subprocess. The process exits when stdin closes.
 
 **Streamable HTTP.** One POST per message on any path (`/remctl` behind Tailscale, `/` locally). Modern requests must send `MCP-Protocol-Version`, `Mcp-Method`, and, for `tools/call`, `resources/read`, and `prompts/get`, `Mcp-Name`; a missing or mismatched header is `400` with `-32020`. Unknown methods are `404` with `-32601`. Notifications get `202`. Legacy clients get an `Mcp-Session-Id` on `initialize`; an unknown session id is `404`, which tells the client to initialize again. `GET` is `405` because no server-initiated stream is offered. `DELETE` ends a session. `GET /health` needs no token and returns the version and supported protocol versions.
+
+**Events.** The server also advertises the `events` capability, with `events/list`, `events/subscribe`, and `events/unsubscribe` and ten reminder and list events, delivered as signed webhooks. It's implemented and tested, but no client we've tried can subscribe yet, so the Codex workspace hides it. See the [Events notes](notes/events-2026-09-30.md).
 
 Tools are listed in a fixed order to support prompt caching. The server was verified against the official MCP Python SDK 2.2 client in modern and legacy modes over both transports, and against Claude Code and Codex.
 
@@ -221,7 +232,7 @@ Set `REMCTL_MCP_DEBUG=1` in the client's environment for a per-request trace on 
 - **`claude mcp list` says Failed to connect.** Run `remctl mcp config --format command` and execute that command in a terminal. It should wait silently; press Control-D to exit. A traceback means the CLI itself is broken: run `remctl doctor`.
 - **Tools work in Claude Code but Claude Desktop shows nothing.** Quit and reopen Claude Desktop after `remctl mcp install --client claude-desktop`, or install the `.mcpb` bundle.
 - **`doctor` says the connection points at a different path.** RemCTL moved, for example to a new `PREFIX`. Run `remctl mcp install` again.
-- **`doctor` says a connection starts a Python that no longer exists, or a versioned Homebrew Python.** The app was registered with a Python path that `brew upgrade` removes. Run `remctl mcp install` again; it registers the stable `opt` path. For the tailnet service, run `remctl mcp install --client tailscale`.
+- **`doctor` says a connection starts a missing or versioned Python.** The app was registered with a Python path that no longer exists, or with a versioned Homebrew path that `brew upgrade` will remove. Run `remctl mcp install` again. For the tailnet service, run `remctl mcp install --client tailscale`.
 - **A tool reports that the Capability Host is unavailable.** Call the `doctor` tool or run `remctl doctor` and follow its fix text. The MCP server never bypasses the host.
 - **The tailnet endpoint is configured but not serving.** `remctl mcp status` shows which part is down. `remctl mcp install --client tailscale` repairs the service and the serve mount. `tailscale serve status` lists the mounts.
 - **Another device gets 401.** The token differs. Run `remctl mcp config --format tailscale` on the Mac and reconnect the device.

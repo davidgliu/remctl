@@ -168,7 +168,7 @@ Groceries writes use `REMListChangeItem.groceryContextChangeItem`: `list-create 
 
 `add --private --grocery` and `edit --private --grocery` verify automatic grocery sorting for the target reminder IDs. The target list must already be a detected Groceries list, and RemCTL fails before writing if it is not. RemCTL first polls the local section membership table because Reminders often sorts new items immediately; if the item is still unsectioned, RemCTL falls back to ReminderKit's explicit grocery categorizer. The JSON result includes `verifiedSections` and `source: "reminders_auto"` when the automatic sorter already handled it.
 
-The grocery fallback uses different method arguments by macOS version: Tahoe takes UUIDs on the grocery-context change; Golden Gate takes `REMObjectID` values on the list change. RemCTL checks available methods before calling them. See the [compatibility audit](private-api-audit-2026-08-12.md#cross-version-follow-up) for the tested contracts and rejected alternatives.
+The grocery fallback uses different method arguments by macOS version: Tahoe takes UUIDs on the grocery-context change; Golden Gate takes `REMObjectID` values on the list change. RemCTL checks available methods before calling them. See the [compatibility audit](notes/private-api-audit-2026-08-12.md#cross-version-follow-up) for the tested contracts and rejected alternatives.
 
 ## Ordering
 
@@ -251,7 +251,7 @@ Moving a reminder to another list is not private metadata: use `remctl edit ID -
 
 ## Installation and Doctor
 
-`./install.sh` compiles `remctl-private` and publishes it as part of the signed Capability Host generation. Normal `auto` execution uses the exact helper path fixed by that sealed generation; a caller-side helper override cannot redirect hosted execution.
+`remctl-private` ships inside the signed Capability Host: prebuilt in the download, or compiled by `./install.sh --from-source`. Normal `auto` execution uses the exact helper path fixed by that sealed generation; a caller-side helper override cannot redirect hosted execution.
 
 For an isolated direct helper build:
 
@@ -261,7 +261,7 @@ clang -fobjc-arc -O -F/System/Library/PrivateFrameworks \
   -o /tmp/remctl-private remctl-private.m
 ```
 
-For normal hosted `auto` execution, `remctl doctor --for-agent --json` reports private-helper readiness under `capabilityHost.privateProtocol.compatible`; use it with `capabilityHost.fullReady`. The direct `private_helper` check and path apply only to explicit direct diagnostics. An incompatible hosted protocol or outdated direct helper blocks `--private` writes while normal non-private commands can keep working. Rebuild and republish the signed generation with `install.sh` after every RemCTL update.
+For normal hosted `auto` execution, `remctl doctor --for-agent --json` reports private-helper readiness under `capabilityHost.privateProtocol.compatible`; use it with `capabilityHost.fullReady`. The direct `private_helper` check and path apply only to explicit direct diagnostics. An incompatible hosted protocol or outdated direct helper blocks `--private` writes while normal non-private commands can keep working. After every RemCTL update, reinstall the same way you installed so the helper matches the CLI.
 
 Override the helper path for testing:
 

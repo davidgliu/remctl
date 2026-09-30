@@ -85,13 +85,13 @@ Follow-up suites passed: Events (18), desktop plugin (15), MCP server (87), inst
 
 Additional acceptance repairs: exports preserve the visible query (including a smart list and search), and generic CLI metadata cannot render as an undefined reminder card.
 
-The [0.2.2 inspector screenshot](screenshots/desktop-inspector-022.png) shows the installed app. The [practical walkthrough](desktop-try-it.md) uses the remaining demo lists. The [repo install guide](desktop-install.md) documents installation without gallery submission.
+The [0.2.2 inspector screenshot](screenshots/desktop-inspector-022.png) shows the installed app. The [Codex plugin guide](../desktop-plugin.md) documents installation without gallery submission.
 
 ## Updated ChatGPT acceptance — build 12404
 
-ChatGPT 26.928.21956 was tested in three fresh conversations: Codex, ChatGPT Work running locally, and regular Chat with the standalone RemCTL plugin explicitly selected. Both local work conversations opened the installed workspace. All three reported that native Events subscription and host-managed callback/signing-secret provisioning were unavailable. No subscription was claimed or created, and the demo reminder was left unchanged. [Events evidence](desktop-events.md#app-update-retry--build-12404) includes conversation identifiers and a screenshot.
+ChatGPT 26.928.21956 was tested in three fresh conversations: Codex, ChatGPT Work running locally, and regular Chat with the standalone RemCTL plugin explicitly selected. Both local work conversations opened the installed workspace. All three reported that native Events subscription and host-managed callback/signing-secret provisioning were unavailable. No subscription was claimed or created, and the demo reminder was left unchanged. [Events evidence](events-2026-09-30.md#app-update-retry--build-12404) includes conversation identifiers and a screenshot.
 
-The updated plugin page now exposes RemCTL's native settings. Packaging integration details are in the [handoff](desktop-packaging-handoff.md); this retry changed documentation only, leaving the installed runtime and signing configuration intact.
+The updated plugin page now exposes RemCTL's native settings. This retry changed documentation only, leaving the installed runtime and signing configuration intact.
 
 ## Final desktop refinement — Events deferred
 
@@ -101,11 +101,11 @@ The inspector now keeps drafts per task while the workspace stays open, puts Sav
 
 Installed acceptance in ChatGPT 26.928.21956/build 12404 used the standalone plugin and demo list 175. Conversation `01a0f143-5ce3-7101-b157-225b4624b431` verified Command-S by saving demo reminder 4979 for October 1 at 09:00. Standalone MCP confirmed `allDay: false`. Removing the time and choosing Today restored September 30 with `allDay: true`; MCP readback confirmed restoration. Image preview, draft retention and cancellation, arrow-key range selection, section collapse, and Command-K were exercised in the native app.
 
-Conversation `01a0f147-e1cb-7442-a3cb-083d3b749aad` verified the final responsive repair by resizing from 1341 to 390 points: the sidebar closed automatically, the inspector fit the pane, and the sidebar could be reopened and dismissed. Evidence: [narrow inspector](screenshots/desktop-narrow-final.png), [light desktop](screenshots/desktop-light-final.png).
+Conversation `01a0f147-e1cb-7442-a3cb-083d3b749aad` verified the final responsive repair by resizing from 1341 to 390 points: the sidebar closed automatically, the inspector fit the pane, and the sidebar could be reopened and dismissed. Evidence: narrow inspector (`desktop-narrow-final.png`, not kept in the repo), light desktop (`desktop-light-final.png`, not kept in the repo).
 
 Final build `53e02600ba62dc06` passed TypeScript, UI interaction contracts, official extension schemas, production bundling, and whitespace validation. Installed HTML and Python plugin/workspace/MCP files matched source byte-for-byte. Installer diagnostics reported 16 checks, one expected direct-caller access warning, and zero failures; signed-host access and existing permission identity were preserved.
 
-The final build also passed the medium-width check in conversation `01a0f14c-4a82-7390-8693-5ad649026ecc`: at 785 points, the sidebar closes automatically and heading controls wrap, leaving room for the task list beside Details. Dark native date controls remain legible. Evidence: [medium-width dark workspace](screenshots/desktop-medium-dark-final.png). Generated HTML SHA256 prefix: `06e2d56c86bc7fa7`.
+The final build also passed the medium-width check in conversation `01a0f14c-4a82-7390-8693-5ad649026ecc`: at 785 points, the sidebar closes automatically and heading controls wrap, leaving room for the task list beside Details. Dark native date controls remain legible. Evidence: medium-width dark workspace (`desktop-medium-dark-final.png`, not kept in the repo). Generated HTML SHA256 prefix: `06e2d56c86bc7fa7`.
 
 ## Rich rows, floating capture and sidebar pins — September 30
 

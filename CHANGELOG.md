@@ -2,6 +2,29 @@
 
 ## 2.0.0 — Unreleased
 
+### Install without Xcode or Python
+
+- The default install is a notarized download. `RemCTL-arm64.dmg` and `RemCTL-x86_64.dmg` contain the signed app and 'Install RemCTL.command'; from a checkout, `./install.sh` downloads the release for your Mac. The installer checks the full signature, the MacStories Developer ID, and Gatekeeper before installing anything, and never falls back to an unsigned build.
+- `./install.sh --from-source` builds everything for free with Apple's Command Line Tools. It downloads a pinned, checksum-verified Python and signs the app with a certificate it creates in `~/Library/Application Support/RemCTL Signing`, without an Apple account. Later builds reuse that certificate, so permissions carry over.
+- RemCTL ships its own Python 3.13. The host installs it into a root-owned, content-addressed folder under `/Library/RemCTL/Python` and checks every file against a signed manifest. It asks for an administrator password only when that exact runtime is missing, and never changes a system or Homebrew Python.
+- New installer options: `--prebuilt APP`, `--allow-local-build`, `--build-output`, and `--migrate-signing`. The installer refuses to change the app's signing identity without `--migrate-signing`. `--from-source` keeps the Apple Development certificate recorded by earlier 2.0 prereleases.
+- The app carries its own uninstaller and the Codex plugin marketplace in `Contents/Resources`. The Capability Host has a new icon, and the workspace's list artwork is rendered locally during installation.
+- `doctor` and the socket client accept a certificate-pinned local signature as a stable identity, alongside Apple team identities.
+- Builds include license notices for Python and the workspace's dependencies.
+- The README and installation guide now cover both install routes and give upgrade steps for every starting point, from 1.x to 2.0 prereleases. Dated audits and validation records moved to `docs/notes`.
+
+### Codex plugin
+
+- New: a RemCTL plugin for Codex on the Mac, with a full Reminders workspace. It has list, column, and calendar layouts; an inspector for every field; drag and drop; a command palette; quick add; pinned list tiles; inline notes, link previews, and images; editors for smart lists, templates, groups, and Groceries lists; Recently Deleted; `.remctl`, JSON, and CSV export; and a reviewed import. Selected reminders can be attached to a conversation. See [docs/desktop-plugin.md](docs/desktop-plugin.md).
+- `REMCTL_PLUGIN=1` starts `remctl mcp` in plugin mode, with 46 app-only tools on top of the standard 21 and the workspace UI. A new internal `workspace` command reads bounded snapshots through the host.
+- MCP Events: the server advertises `events` with ten reminder and list events, delivered as signed webhooks with filters, retries, and expiry. The workspace hides it until a client can subscribe.
+
+### Recurrence, import, and Groceries
+
+- `edit --recurrence clear` (or `none`, `never`) removes a repeat rule, which also lets `-d clear` remove the due date in the same edit.
+- `import --dry-run` validates a file without creating anything.
+- MCP: `create_reminder` and `update_reminder` take `grocery` with `private: true`; `update_list` takes `groceries`, `standard`, and `grocery_locale`; `recurrence` accepts an exported recurrence object as a JSON string.
+
 ### Recently Deleted
 
 - `deleted` and the `recently_deleted` MCP tool show Apple's recoverable reminders with numeric IDs, pagination, and nested subtasks. `info --include-deleted` and `get_reminder` with `include_deleted: true` can inspect them.
@@ -30,7 +53,7 @@
 
 ### Search, batches, locations, and typed metadata
 
-Closes the gaps found by comparing RemCTL with `remindctl`, the Reminders CLI behind Hermes Agent's bundled skill ([docs/remindctl-comparison-2026-09-26.md](docs/remindctl-comparison-2026-09-26.md)).
+Closes the gaps found by comparing RemCTL with `remindctl`, the Reminders CLI behind Hermes Agent's bundled skill ([docs/notes/remindctl-comparison-2026-09-26.md](docs/notes/remindctl-comparison-2026-09-26.md)).
 
 - `search` matches saved rich links as well as titles and notes, ignores case and accents (`cafe` finds `Café`), and keeps `%`, `_`, and `\` literal. `--list` and `--list-id` limit it to one list; duplicate list names stop with the candidate ids. It no longer drops matches past 100 without saying so: `--limit` and `--offset` page through every match with `total`, `hasMore`, and `nextOffset`, and plain `--json` warns on stderr when more matches exist. The `--via-eventkit` search also matches the reminder's URL.
 - `done`, `undone`, and `delete` take up to 50 ids. Every id is looked up before the first write, repeated ids are written once, and `--json` reports each id with `succeeded`, `failed`, and `uncertain` lists. `delete` confirms the whole batch once and still needs `--force` with `--json`.
@@ -51,7 +74,7 @@ Closes the gaps found by comparing RemCTL with `remindctl`, the Reminders CLI be
 ### MCP server
 
 - Added `remctl mcp`, a local MCP (Model Context Protocol) server over stdio with no third-party dependencies. It implements the stateless MCP 2026-07-28 revision (`server/discover`, per-request `_meta` protocol and capability fields, `resultType`, `serverInfo` and cache hints on every result, `-32022` version errors with the supported list) and supports `initialize`-based clients on 2025-11-25, 2025-06-18, 2025-03-26, and 2024-11-05. Verified against the official MCP Python SDK 2.2 client in modern and legacy modes.
-- Nineteen tools with input schemas, output schemas, annotations, and structured results: `today`, `upcoming`, `overdue`, `flagged`, `search`, `show_list`, `lists`, `get_list`, `get_reminder`, `resolve_location`, `create_reminder`, `update_reminder`, `set_completion`, `set_flagged`, `delete_reminder`, `create_list`, `update_list`, `doctor`, and a `run` tool for other data commands. Two prompts: `daily_review` and `plan_week`. Every tool runs the installed CLI with `--json`, so the signed Capability Host keeps owning macOS permissions and clients need no grants. RemCTL's structured stderr errors are returned as tool errors the model can act on; `notifications/cancelled` terminates the tool's subprocess.
+- Twenty-one tools with input schemas, output schemas, annotations, and structured results: `today`, `upcoming`, `overdue`, `flagged`, `search`, `show_list`, `lists`, `get_list`, `get_reminder`, `resolve_location`, `create_reminder`, `update_reminder`, `set_completion`, `set_flagged`, `recently_deleted`, `restore_reminder`, `delete_reminder`, `create_list`, `update_list`, `doctor`, and a `run` tool for other data commands. Two prompts: `daily_review` and `plan_week`. Every tool runs the installed CLI with `--json`, so the signed Capability Host keeps owning macOS permissions and clients need no grants. RemCTL's structured stderr errors are returned as tool errors the model can act on; `notifications/cancelled` terminates the tool's subprocess.
 - MCP Apps widget (`ui://remctl/reminders-v1.html`, extension `io.modelcontextprotocol/ui`, spec 2026-01-26), adapted from MacRemote's shared widget: reminder rows with Reminders-style check-off, reschedule, rename, and two-step delete, section headers, single-reminder cards, change confirmations with warnings, list and doctor views, host theming, and capability-scoped linkage with legacy aliases.
 - New onboarding step and commands for supported clients: `remctl onboard` now offers to connect detected AI apps; `remctl mcp install` uses `claude mcp add` for Claude Code, `codex mcp add` for Codex, and a backed-up merge into `claude_desktop_config.json` for Claude Desktop and Cowork; `remctl mcp bundle` builds a one-click `.mcpb` desktop extension; `remctl mcp status`, `config`, and `remove` complete the set. `doctor` gained an `mcp_clients` check. `mcp` joins the local command set (seven local commands; data commands run in the host).
 - The installer publishes `remctl_mcp.py`, `remctl_mcp_widget.html`, and the MCP icons in the same ownership manifest; the uninstaller removes them.

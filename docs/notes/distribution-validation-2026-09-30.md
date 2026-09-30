@@ -51,7 +51,7 @@ Both `dist/source-delivery/RemCTL Capability Host.app` and `dist/release-deliver
 
 The free artifact was built by `./install.sh --from-source --build-output dist/source-delivery --dry-run --shell-completions none`, using only `/usr/bin:/bin:/usr/sbin:/sbin` on PATH, temporary install paths and the normal persistent signing key. Apple Python 3.9.6 orchestrated the build; the packaged runtime is Python 3.13.15. Strict nested signatures passed. The newly signed runtime generation was not installed; live free-build evidence below uses the earlier installed generation.
 
-The Developer ID artifact preserves the previously verified signed Python tree and protected runtime path. UI updates therefore reuse that runtime without another administrator prompt. Both artifacts passed final source parity checks. TypeScript checking, interaction contracts, SDK schemas and production bundling passed after the final capture and sidebar refinements, along with 18 desktop and 5 rich-preview tests. The coordinated thread verified actual artwork, Quick Add values and keyboard capture, plus regular and smart-list pins in the native ChatGPT workspace; see [desktop acceptance](desktop-plugin-validation.md#rich-rows-floating-capture-and-sidebar-pins--september-30).
+The Developer ID artifact preserves the previously verified signed Python tree and protected runtime path. UI updates therefore reuse that runtime without another administrator prompt. Both artifacts passed final source parity checks. TypeScript checking, interaction contracts, SDK schemas and production bundling passed after the final capture and sidebar refinements, along with 18 desktop and 5 rich-preview tests. The coordinated thread verified actual artwork, Quick Add values and keyboard capture, plus regular and smart-list pins in the native ChatGPT workspace; see [desktop acceptance](desktop-validation-2026-09-30.md#rich-rows-floating-capture-and-sidebar-pins--september-30).
 
 ## Final notarized artifact and installed verification
 
@@ -109,6 +109,6 @@ The free build was installed at the normal app path with the existing protected 
 - Local signing certificate: `CA5B3C8F2DDA499D8DFD35B004266CF94720C368`.
 - Original code hash: `8f543c49bd0adcd7eb237b3fe75cb5c50b104366`.
 - Updated code hash: `96a5e2b290fa049cd9233c867b8379418b558205`.
-- Evidence: `docs/distribution-permission-continuity.json`.
+- Evidence: [distribution-permission-continuity.json](distribution-permission-continuity.json).
 
 This verifies ordinary updates within the free-build identity. Switching between that certificate and Developer ID is a deliberate identity migration and needs new grants. The installer refuses an unrequested identity change. Following this test, the original final notarized app was restored; its Full Disk Access grant was restored, and its Reminders grant was restored. The installed notarized host again passed `doctor --for-agent` with all three permissions, a protected-store read, and the visible ChatGPT workspace Refresh without an error.

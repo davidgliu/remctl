@@ -2,39 +2,56 @@
 
 ![RemCTL](https://cdn.macstories.net/images/uploads/2026/05/26/cleanshot-2026-05-26-at-1629152x-1779805785287-9271e938c2.png)
 
-RemCTL reads and changes Apple Reminders from the terminal or an AI app through MCP (Model Context Protocol). It supports reminders, lists, sections, tags, subtasks, smart lists, templates, and import/export.
+RemCTL gives you full control of Apple Reminders from the terminal, from AI apps, and from a Reminders workspace inside Codex. It covers the basics (reminders, lists, due dates, flags, and search) as well as features Apple doesn't expose to other apps, such as sections, tags, subtasks, smart lists, and templates.
 
-A signed app, **RemCTL Capability Host**, holds the macOS permissions. Terminal, Python, and AI apps use that host and need no separate grants. Reads use the local Reminders database; writes use Apple's EventKit API or, with `--private`, its private ReminderKit framework.
+Everything goes through **RemCTL Capability Host**, a small signed app that holds the macOS permissions. You grant access to that one app, and the terminal, scripts, and AI apps use it. None of them need their own permissions.
 
 ## Install
 
-You do not need an Apple developer account or paid membership. RemCTL includes its own Python runtime.
+You need macOS 14 or later with iCloud Reminders turned on. You don't need an Apple developer account, Xcode, or your own copy of Python.
 
-**Default: notarized download.** On macOS 14 or later, download the `RemCTL-arm64.dmg` (Apple silicon) or `RemCTL-x86_64.dmg` (Intel) release, open it, and double-click **Install RemCTL.command**. The installer verifies the publisher, installs the CLI and Capability Host, and starts its background service. No Xcode or separate Python installation is needed.
+**Download (recommended).** Download `RemCTL-arm64.dmg` (or `RemCTL-x86_64.dmg` for Intel Macs) from [Releases](https://github.com/viticci/remctl/releases), open it, and double-click 'Install RemCTL.command'. Terminal opens, checks that the app is signed by MacStories and notarized by Apple, installs it, and walks you through permissions.
 
-From a checkout, the same route is:
-
-```bash
-./install.sh --bootstrap
-~/bin/remctl onboard
-```
-
-**Free source build.** Install Apple's free Command Line Tools once with `xcode-select --install`, then:
+**Build it yourself (free).** Install Apple's Command Line Tools once, then build from this repo:
 
 ```bash
+xcode-select --install
 git clone https://github.com/viticci/remctl.git
 cd remctl
 ./install.sh --from-source --bootstrap
-~/bin/remctl onboard
 ```
 
-The source command builds everything and creates a persistent local signing certificate. It does not sign in to Apple or require a subscription. Keep that certificate for future updates. In Terminal, `--bootstrap` starts guided onboarding after installation; the separate `onboard` command lets you resume it later.
+This builds everything on your Mac and signs it with a certificate RemCTL creates for you. It never signs in to Apple. The certificate lives in `~/Library/Application Support/RemCTL Signing`: keep it, because future updates need the same certificate to keep your permissions.
 
-Both routes ask for a Mac administrator password to install protected Python under `/Library/RemCTL`. Onboarding guides the macOS permissions for **RemCTL Capability Host**. iCloud Reminders must be enabled. See [installation](docs/installation.md) for updates, custom paths and permission setup.
+Both routes ask for your Mac password once. RemCTL installs its own Python under `/Library/RemCTL`, owned by root, so other apps can't tamper with it.
 
-**Development status:** these distribution paths are under local validation. No downloadable release has been published from this work; use `--from-source` until release artifacts are available.
+### Permissions
 
-## Use the CLI
+Setup asks for three permissions, all for 'RemCTL Capability Host': Reminders, Automation for the Reminders app, and Full Disk Access. The first two are standard macOS prompts. Full Disk Access has no prompt, so RemCTL opens a helper that shows you exactly which app to add. When it's done, check everything with:
+
+```bash
+remctl doctor
+```
+
+If you quit setup early, pick it up again with `remctl onboard`. If `remctl` isn't found, the installer tells you which folder to add to your PATH (usually `~/bin`). [Installation](docs/installation.md) covers custom paths, permissions by hand, and troubleshooting.
+
+## Upgrade
+
+Find your current setup below. `remctl --version` tells you which version you have.
+
+| You have | Do this |
+| --- | --- |
+| RemCTL 2.0 from the download | Download the new release and run 'Install RemCTL.command' again. |
+| RemCTL 2.0 you built yourself | `git pull`, then `./install.sh --from-source`. |
+| A 2.0 prerelease installed from `main` with your own Apple Development certificate | `git pull`, then `./install.sh --from-source`. It reuses your certificate, so permissions carry over. |
+| RemCTL 1.7.1 | `git pull`, then `./install.sh --from-source --adopt-existing-install --bootstrap`. |
+| RemCTL 1.7.0 or older | From your old checkout, run `./uninstall.sh --keep-config`. Then `git pull` and install as new. |
+
+Updates that keep the same signature keep your permissions. RemCTL 1.x had no Capability Host, so coming from 1.x means granting permissions once to the new app. (You can remove the old grants for Terminal afterwards; RemCTL doesn't need them anymore.)
+
+Switching between the download and your own build changes the app's signature. The installer refuses unless you add `--migrate-signing`, and you'll need to grant Full Disk Access again. [Switching signatures](docs/installation.md#switching-between-the-download-and-your-own-build) explains how.
+
+## Use it from the terminal
 
 ```bash
 remctl today                      # due today and overdue
@@ -43,115 +60,73 @@ remctl show Work --format table   # one list, in Reminders' order
 remctl search "invoice" --json    # titles, notes, and saved links
 remctl add "Review PR" -l Work -d "tomorrow 10:00" -p high
 remctl add "Pay rent" -d 2026-06-01 --recurrence monthly
-remctl edit 23880 -d clear
-remctl done 23880 23881            # one id or a batch of up to 50
-remctl delete 23880 --force
+remctl done 23880 23881           # one id or a batch of up to 50
 remctl info 23880 --json          # everything RemCTL knows about one reminder
 ```
 
-Every read command has `--json`. Every reminder has a stable numeric `id` that works with `info`, `edit`, `done`, `undone`, `delete`, `link`, `open`, and `subtasks`.
+Every reminder has a stable numeric `id`, and every read command has `--json`. `rctl` and `reminders` work as aliases. The [command guide](docs/commands.md) covers due dates, recurrence, output formats, inline images, and every command.
 
-| Task | Commands |
-| --- | --- |
-| See what is due | `today`, `upcoming`, `overdue`, `flagged`, `urgent` |
-| Browse | `lists`, `list-info`, `groups`, `group-info`, `smart-lists`, `templates`, `template-info`, `show`, `search`, `info`, `subtasks`, `sections`, `tags`, `sharees`, `location-lookup`, `stats` |
-| Create and edit | `add`, `edit`, `done`, `undone`, `delete`, `flag`, `unflag`, `reminder-move` |
-| Organize | `list-create`, `list-edit`, `list-rename`, `list-delete`, `list-pin`, `list-unpin`, `list-symbols`, `section-create`, `section-rename`, `section-delete`, `group-create`, `group-edit`, `group-delete`, `smart-list-create`, `smart-list-edit`, `smart-list-delete`, `template-create`, `template-apply`, `template-delete` |
-| Move data | `export`, `import`, `link`, `open` |
-| Set up | `onboard`, `doctor`, `setup`, `permissions`, `completion` |
-| AI apps | `mcp install`, `mcp status`, `mcp config`, `mcp bundle`, `mcp token`, `mcp remove` |
+## Use it from AI apps
 
-The command guide is [docs/commands.md](docs/commands.md). It covers due-date formats, recurrence rules, output formats, inline images, private metadata, and every command family.
-
-The installer also creates `rctl` and `reminders` as aliases of `remctl`.
-
-## Use it from AI apps (MCP)
-
-MCP (Model Context Protocol) is the standard AI apps use to discover and call tools. `remctl mcp` is a local MCP server. It needs nothing beyond Python's standard library, and every tool runs the installed CLI with `--json`, so the Capability Host keeps owning the permissions and the AI app needs no grants of its own.
-
-Connect an app (onboarding offers the same step):
+RemCTL includes an MCP server (MCP, or Model Context Protocol, is the standard AI apps use to call tools). Setup offers to connect the AI apps it finds on your Mac. You can also do it yourself:
 
 ```bash
-remctl mcp install                          # every app found on this Mac
-remctl mcp install --client claude-code     # uses `claude mcp add`
-remctl mcp install --client codex           # uses `codex mcp add`
+remctl mcp install                          # every supported app on this Mac
 remctl mcp install --client claude-desktop  # Claude Desktop and Cowork; restart Claude afterwards
-remctl mcp bundle --open                    # or a one-click .mcpb extension for Claude Desktop
+remctl mcp bundle --open                    # or install it as a one-click Claude Desktop extension
 remctl mcp status
 ```
 
-The server provides 21 tools for reading, creating, and editing reminders and lists. Search supports pages and list filters; completion and deletion support batches. Recently Deleted can be inspected and reminders restored with their original IDs. Private metadata requires `private: true`. The `run` tool handles other data commands.
+AI apps can read, create, edit, complete, and delete reminders and lists, search with paging, and restore reminders from Recently Deleted. Apps that support MCP Apps also get an interactive reminders widget. To use RemCTL from Claude Code, Codex, or Claude Desktop on another computer, `remctl mcp install --client tailscale` serves the same tools over your private Tailscale network.
 
-Clients that support MCP Apps can show a reminders widget with completion, rescheduling, renaming, and deletion. [The MCP guide](docs/mcp.md) covers tools and connections; [the Hermes guide](docs/hermes.md) covers Hermes Agent.
+The [MCP guide](docs/mcp.md) has the full tool list and troubleshooting. There's also a guide for [Hermes Agent](docs/hermes.md).
 
-The [desktop plugin](docs/desktop-plugin.md) adds a full Reminders workspace in Codex for Mac: list, columns and calendar layouts, a command palette, context menus, drag and drop, native list artwork, an inspector, selected conversation context, and editable RemCTL files. It uses the standalone RemCTL server and the existing signed Capability Host. The ordinary MCP connection remains available for other clients.
+## Use it in Codex
 
-[Install it from this repo](docs/desktop-install.md) through a local Codex marketplace. The built interface is included; no Node setup or OpenAI gallery listing is required. The guide covers host prerequisites, first setup, updates and removal.
+The RemCTL plugin for Codex on the Mac adds a full Reminders workspace: list, column, and calendar layouts, an inspector for every reminder field, drag and drop, a command palette, quick add, and your real list icons and colors. You can attach specific reminders to a conversation, and your reminders stay in Apple Reminders.
 
-Serve the same tools to your other devices:
-
-```bash
-remctl mcp install --client tailscale
-```
-
-This starts a small HTTPS endpoint that only devices on your Tailscale network can reach, protected by a private token. RemCTL prints the exact commands to run on the other device. See [docs/mcp.md](docs/mcp.md) for the tool reference, protocol details (MCP 2026-07-28 with compatibility back to 2024-11-05), the widget, and troubleshooting.
-
-## Permissions and architecture
-
-The Capability Host needs Full Disk Access to read the database, Reminders access for EventKit, and Automation access for AppleScript. It starts at login and serves commands through a socket accessible only to your user account. RemCTL never writes directly to the database.
-
-`onboard` requests Reminders and Automation access and explains how to grant Full Disk Access. After changing Full Disk Access, restart the host:
+Install RemCTL first, then add the plugin from the installed app:
 
 ```bash
-launchctl kickstart -k "gui/$(id -u)/net.macstories.remctl.capability-host"
+codex plugin marketplace add "$HOME/Applications/RemCTL Capability Host.app/Contents/Resources"
+codex plugin add remctl@remctl-local
 ```
 
-See [permissions](docs/installation.md#permissions) and [architecture](docs/architecture.md).
+Open 'Reminders' in the Codex sidebar, or ask Codex to open your Reminders workspace. The [Codex plugin guide](docs/desktop-plugin.md) covers updates, settings, keyboard shortcuts, and removal.
 
 ## Private metadata
 
-Some Reminders features have no public API: sections, synced tags, rich links, image attachments, subtasks with their own metadata, shared-list assignment, urgent state, Early Reminders, manual ordering, list icons and emoji, Groceries lists, list groups, custom smart lists, and templates. RemCTL writes them only when you pass `--private`:
+Some Reminders features have no public API: sections, synced tags, rich links, image attachments, subtasks, shared-list assignment, urgent reminders, Early Reminders, manual ordering, list icons, Groceries lists, list groups, custom smart lists, and templates. RemCTL writes them only when you pass `--private`:
 
 ```bash
 remctl add "Research" -l Projects --private --url https://example.com -t remctl --section Research
-remctl edit 23880 --private --set-tags remctl,work
 remctl smart-list-create "Priority or Today" --private --match any --priority high,medium --date today
 ```
 
-These writes use Apple's private ReminderKit framework through a small helper. They never touch the database directly. Apple can change these APIs in any macOS release. [docs/private-metadata.md](docs/private-metadata.md) lists what is supported and how to verify each write.
+These writes use Apple's private ReminderKit framework, never the database directly. Apple can change these APIs in any macOS release. [Private metadata](docs/private-metadata.md) lists what works and how to verify it.
 
 ## For agents
 
-Read [SKILL.md](SKILL.md).
-
-- If the RemCTL MCP server is connected to your host, use its tools. They validate arguments and return the same numeric ids as the CLI.
-- If MCP is unavailable, repair the connection. Use the CLI for setup, diagnostics, or an explicit CLI request.
-- Use deterministic due dates (`YYYY-MM-DD` or `YYYY-MM-DD HH:MM`). Pass `--force` to destructive commands. Verify writes with `info <id> --json`.
-- `remctl doctor --for-agent --json` reports readiness. `access.effective` is the answer that matters.
-
-## Upgrade
-
-```bash
-git pull
-./install.sh
-remctl doctor
-```
-
-Use `./install.sh --from-source` for source-build updates. The installer preserves the signing certificate and refuses unexpected identity changes. Switching between a local build and the public release requires `--migrate-signing` and may require granting permissions again. Run `remctl onboard` again only if `doctor` reports a permission problem. Upgrading from 1.7.1, which had no host, needs the one-time steps in [docs/installation.md](docs/installation.md#upgrading).
+Read [SKILL.md](SKILL.md). In short: use the RemCTL MCP tools when they're connected, use deterministic dates (`YYYY-MM-DD` or `YYYY-MM-DD HH:MM`), and verify writes with `info <id> --json`. `remctl doctor --for-agent --json` reports readiness; `access.effective` is the field that matters.
 
 ## Uninstall
 
+Disconnect AI apps and remove the Codex plugin first, then run the uninstaller that came with the app (or `./uninstall.sh` from a checkout):
+
 ```bash
-./uninstall.sh
+remctl mcp remove
+codex plugin remove remctl@remctl-local && codex plugin marketplace remove remctl-local
+~/Applications/"RemCTL Capability Host.app"/Contents/Resources/Distribution/uninstall.sh
 ```
 
-The uninstaller stops the host, removes the app, the LaunchAgent, the socket, and the installed files. It retains the protected Python copies and your local signing key so other installs and later rebuilds keep working. It does not revoke macOS permissions or edit your shell profile. Disconnect AI apps first with `remctl mcp remove`.
+It stops the Capability Host and removes the app, the CLI, its background service, and your RemCTL settings (add `--keep-config` to keep them). It leaves the shared Python under `/Library/RemCTL` and your signing certificate in place, and it doesn't revoke macOS permissions. `--dry-run` shows what it would remove.
 
 ## Documentation
 
-- [Installation and onboarding](docs/installation.md)
+- [Installation](docs/installation.md)
 - [Command guide](docs/commands.md)
 - [MCP server](docs/mcp.md)
+- [Codex plugin](docs/desktop-plugin.md)
 - [Hermes Agent](docs/hermes.md)
 - [Private metadata](docs/private-metadata.md)
 - [Architecture](docs/architecture.md)
@@ -163,20 +138,17 @@ The uninstaller stops the host, removes the app, the LaunchAgent, the socket, an
 | Path | Purpose |
 | --- | --- |
 | `remctl` | The CLI |
-| `remctl_mcp.py` | MCP server (stdio and HTTP), tool catalog, widget metadata, client connection helpers |
-| `remctl_mcp_widget.html` | MCP Apps reminders widget |
-| `remctl_broker.py` | Client and host sides of the socket protocol |
-| `remctl_runtime.py` | Routing, paths, date windows, shared helpers |
-| `remctl_serialization.py` | Reminder JSON |
-| `remctl_images.py` | Attachment lookup and inline image rendering |
-| `remctl_smart_lists.py` | Smart-list filter encoding |
-| `remctl_capability_policy.py`, `remctl_capabilities.py` | Host command policy and descriptor-backed inputs |
-| `remctl-bridge.swift` | EventKit write helper |
-| `remctl-private.m` | Private ReminderKit helper |
+| `remctl_mcp.py`, `remctl_mcp_widget.html` | MCP server and its reminders widget |
+| `remctl_plugin.py`, `remctl_workspace.py`, `remctl_workspace.html` | Codex plugin tools and the built workspace |
+| `remctl_events.py` | MCP Events (not enabled in the plugin yet) |
+| `remctl_broker.py`, `remctl_capability_policy.py`, `remctl_capabilities.py` | Socket protocol and host command policy |
+| `remctl_runtime.py`, `remctl_serialization.py`, `remctl_images.py`, `remctl_smart_lists.py` | Shared helpers, JSON, images, and smart-list filters |
 | `remctl-capability-host.swift` | The signed host app |
-| `remctl-permissions.swift` | Full Disk Access helper |
-| `scripts/` | Archive builder and live test matrices |
-| `install.sh`, `uninstall.sh` | Transactional installer and guarded uninstaller |
+| `remctl-bridge.swift`, `remctl-private.m`, `remctl-permissions.swift` | EventKit, private ReminderKit, and Full Disk Access helpers |
+| `plugins/`, `.agents/plugins/` | Codex plugin manifest, skills, and marketplace |
+| `ui/` | Workspace source (only needed to change the interface) |
+| `scripts/` | Release builds, notarization, signing, and live test matrices |
+| `install.sh`, `uninstall.sh` | Installer and uninstaller |
 
 ## License
 

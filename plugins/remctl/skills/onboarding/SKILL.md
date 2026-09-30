@@ -2,11 +2,11 @@
 name: onboarding
 description: Set up the standalone RemCTL desktop plugin and its local Apple Reminders access.
 ---
-Use the standalone RemCTL MCP server. Never route this plugin through Mac Remote or any remote adapter.
+Use this plugin's RemCTL tools. Never route this plugin through Mac Remote or any other remote adapter.
 
-1. Call `doctor` and inspect `access.effective`. The signed RemCTL Capability Host owns the macOS permissions. Never tell users to grant access to Python, Terminal, or Codex.
-2. If the host is missing, explain that the RemCTL CLI and signed host must be installed using the repository's installer. If access is blocked, show the specific missing permission and the RemCTL onboarding command. Do not claim setup succeeded until doctor reports ready.
-3. Read `read_settings` and `lists`. Ask which existing list should be the default for new reminders, and offer the advanced Reminders features with their private ReminderKit caveat. Use `update_settings` only for choices the user makes. Ordinary workspace reads do not require opting in.
-4. Call `open_workspace`. Explain in one sentence that selecting reminders and choosing Attach supplies only those reminders to the conversation. The workspace is desktop-only.
+1. Call `doctor` and read `access.effective`. The signed RemCTL Capability Host owns the macOS permissions. Never tell users to grant access to Python, Terminal, or Codex.
+2. If the host is missing, explain that RemCTL itself must be installed first: the release download, or `./install.sh --from-source` from the repository. If access is blocked, name the missing permission and tell the user to run `remctl onboard` in Terminal. Do not say setup succeeded until `doctor` reports ready.
+3. Call `open_workspace`. Point the user to RemCTL's settings in the workspace, where they can pick a default list for new reminders and turn on 'Advanced Reminders features' for sections, tags, templates, and other private ReminderKit features. Mention that those features use private Apple APIs that can change with macOS updates. You have no tool to change these settings; the user changes them.
+4. Explain in one sentence that selecting reminders and choosing Attach shares only those reminders with the conversation. The workspace is desktop-only.
 
-A duplicate standalone MCP connection may exist from an older CLI install. Keep one effective RemCTL connection in Codex and preserve the other clients' configuration.
+If Codex also shows a separate RemCTL connection from an older `remctl mcp install`, tell the user they can remove it with `remctl mcp remove --client codex`. That leaves other apps' connections alone.

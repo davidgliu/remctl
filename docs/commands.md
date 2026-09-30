@@ -188,6 +188,7 @@ remctl edit 23880 -d clear
 remctl edit 23880 -l Work                   # move to another list
 remctl edit 23880 --list-id 156
 remctl edit 23880 --recurrence "weekly mon,wed"
+remctl edit 23880 --recurrence clear        # stop repeating (also none or never)
 remctl edit 23880 --alarm 1h
 remctl done 23880
 remctl done 23880 --date 2026-05-27
@@ -469,6 +470,7 @@ If a private step fails after the reminder was created, `add --json` prints `{"s
 remctl export --list Shopping --format json > shopping.json
 remctl export --list-id 153 --format json > shopping.json
 remctl export --format csv > all-reminders.csv
+remctl import shopping.json --dry-run       # validate without creating anything
 remctl import shopping.json
 remctl import - --json < shopping.json
 ```
@@ -477,7 +479,7 @@ remctl import - --json < shopping.json
 
 `recurrence` accepts a CLI spec string or the structured object produced by JSON export. Structured rules preserve intervals, weekday positions, month/year filters, occurrence counts, and end dates. The same object works in `--subtask` JSON. Invalid or unknown recurrence fields are rejected.
 
-The whole array is validated before the first write. Invalid input creates nothing and exits 1; with `--json`, field errors come back as `{"status": "error", "code": "invalid_import", "errors": [...]}` on stderr. During the import, each success is reported on stderr as `imported index=N id=ID`. The final line on stdout is one JSON object with `status` (`completed` or `partial`), `created`, `createdIds`, `errors`, and `total`. A partial import exits 1 and keeps what was created; retry only the failed indexes.
+The whole array is validated before the first write. `--dry-run` stops there and prints `{"status": "valid", "count": N, "created": 0}`. Invalid input creates nothing and exits 1; with `--json`, field errors come back as `{"status": "error", "code": "invalid_import", "errors": [...]}` on stderr. During the import, each success is reported on stderr as `imported index=N id=ID`. The final line on stdout is one JSON object with `status` (`completed` or `partial`), `created`, `createdIds`, `errors`, and `total`. A partial import exits 1 and keeps what was created; retry only the failed indexes.
 
 ## Links
 
@@ -523,9 +525,9 @@ REMCTL_CAPABILITY_HOST=force remctl stats --json    # prove the host route works
 REMCTL_CAPABILITY_HOST=direct remctl stats --json   # bypass the host (diagnostics only)
 ```
 
-`onboard` is described in [installation.md](installation.md#onboarding). `doctor --for-agent --json` reports `access.direct` and `access.effective`; `access.effective.ready` plus `capabilityHost.fullReady` is the readiness gate. `capabilityHost.privateProtocol.compatible` reports whether the sealed private helper matches the CLI; if not, run `./install.sh` again. `doctor` also warns when the zsh completion directory is not on `fpath`.
+`onboard` is described in [installation.md](installation.md#onboarding). `doctor --for-agent --json` reports `access.direct` and `access.effective`; `access.effective.ready` plus `capabilityHost.fullReady` is the readiness gate. `capabilityHost.privateProtocol.compatible` reports whether the sealed private helper matches the CLI; if not, reinstall the same way you installed (`./install.sh --from-source`, or the latest release). `doctor` also warns when the zsh completion directory is not on `fpath`.
 
-The `mcp` commands are documented in [mcp.md](mcp.md).
+The `mcp` commands are documented in [mcp.md](mcp.md). `workspace` is an internal command the [Codex plugin](desktop-plugin.md) uses to read snapshots; you don't need to run it.
 
 ## Environment variables
 
