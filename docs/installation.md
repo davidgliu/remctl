@@ -166,6 +166,19 @@ For source builds use `./install.sh --from-source`. Updates retain the existing 
 
 For an install under `~/.local/bin`, keep the same prefix: `PREFIX="$HOME/.local" ./install.sh`.
 
+### Switching signing identities
+
+A free build and the notarized release have different signing identities. macOS can retain the old identity's Full Disk Access entry even when the replacement has the same app name and its switch is on. Adding the new app to that existing entry may not update the saved identity.
+
+If `doctor` still reports denied Full Disk Access after an intentional `--migrate-signing` installation:
+
+1. Open System Settings → Privacy & Security → Full Disk Access.
+2. Select **RemCTL Capability Host** and remove that entry with `−`. Authenticate if macOS asks.
+3. Use `+` to add the exact installed app shown by `remctl permissions full-disk-access` and enable its switch.
+4. Restart the host using the command above, then run `remctl doctor --for-agent`.
+
+The workspace cannot read the Reminders database while this grant is missing. Once the health check passes, click **Refresh** in the workspace. Ordinary updates that keep the same signing identity should not need this migration.
+
 ### Upgrading from 1.7.1
 
 Release 1.7.1 had no Capability Host and no ownership manifest. The first 2.0 install over it works like a first install:
