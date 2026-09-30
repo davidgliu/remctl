@@ -8,9 +8,14 @@ fi
 BUILD="$(cd "$1" && pwd -P)"
 PROFILE="$2"
 APP="$BUILD/RemCTL Capability Host.app"
-REQUIREMENT='=identifier "net.macstories.remctl.capability-host" and anchor apple generic and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = "4W35M4UN6R"'
+PUBLISHER='anchor apple generic and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = "4W35M4UN6R"'
+REQUIREMENT="=identifier \"net.macstories.remctl.capability-host\" and $PUBLISHER"
 /usr/bin/codesign --verify --deep --strict -R "$REQUIREMENT" "$APP"
 [[ "$(/usr/bin/codesign -dvvv "$APP" 2>&1)" == *"runtime"* ]] || { echo "Hardened runtime is required." >&2; exit 1; }
+# Sign the disk image with the same publisher as its app. Notarization alone
+# does not give an unsigned DMG a Gatekeeper-verifiable publisher signature.
+/usr/bin/codesign --display --extract-certificates="$BUILD/notarization-certificate-" "$APP"
+IDENTITY="$(/usr/bin/shasum -a 1 "$BUILD/notarization-certificate-0" | /usr/bin/awk '{print $1}')"
 PYTHON="$APP/Contents/Resources/Python/bin/python3.13"
 ARCH="$("$PYTHON" -B -I -S -c 'import json,sys; print(json.load(open(sys.argv[1]))["architecture"])' "$APP/Contents/Resources/distribution.json")"
 case "$ARCH" in arm64|x86_64) ;; *) echo "Invalid release architecture" >&2; exit 1 ;; esac
@@ -55,9 +60,12 @@ exec /bin/bash "$APP/Contents/Resources/Distribution/install.sh" --prebuilt "$AP
 INSTALL
 chmod 755 "$PAYLOAD/Install RemCTL.command"
 /usr/bin/hdiutil create -volname RemCTL -srcfolder "$PAYLOAD" -format UDZO "$DMG"
+/usr/bin/codesign --sign "$IDENTITY" --timestamp "$DMG"
+/usr/bin/codesign --verify --strict -R "=$PUBLISHER" "$DMG"
 submit "$DMG" dmg
 /usr/bin/xcrun stapler staple "$DMG"
 /usr/bin/xcrun stapler validate "$DMG"
 /usr/sbin/spctl --assess --type execute "$APP"
+/usr/sbin/spctl --assess --type open --context context:primary-signature "$DMG"
 /usr/bin/shasum -a 256 "$DMG" > "$DMG.sha256"
 echo "Notarized release ready: $DMG"
