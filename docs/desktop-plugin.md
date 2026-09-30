@@ -1,6 +1,11 @@
 # RemCTL for Codex
 
-The RemCTL plugin turns Codex on the Mac into a Reminders workspace. You get list, column, and calendar layouts, an inspector for every field, drag and drop, a command palette, and your real list icons and colors. Apple Reminders stays the source of truth, and everything runs on your Mac through the Capability Host.
+The RemCTL plugin turns Codex on the Mac into a Reminders workspace, with a sidebar that works like the Reminders app. You get list, column, and calendar layouts, an inspector for every field, drag and drop, a command palette, and your real list icons and colors. Apple Reminders stays the source of truth, and everything runs on your Mac through the Capability Host.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../assets/readme/today-dark.jpg">
+  <img alt="The RemCTL workspace in Codex, showing Today" src="../assets/readme/today-light.jpg">
+</picture>
 
 There are two parts. RemCTL itself (the CLI and the Capability Host) talks to Reminders and holds the permissions. The plugin adds the workspace and the conversation features on top. Installing the plugin alone doesn't install RemCTL or grant any permissions.
 
@@ -60,6 +65,11 @@ This removes the plugin only. RemCTL and your reminders stay. To remove RemCTL t
 **Layouts.** Switch between list, columns, and calendar from the toolbar. Each list, smart list, and view remembers its own layout; the 'Default layout' setting covers the rest. Lists show sections and nested subtasks. In columns, drop reminders into sections. In the calendar, drag a reminder to another day (it keeps its time), or double-click a day to create one. A 'No date' strip keeps unscheduled reminders in view.
 
 **Rows.** Notes, saved link cards, and image attachments show inline, and a reminder with subtasks folds them with its 'N subtasks' button. Today splits into overdue, all-day, morning, afternoon, and evening. 'Load missing link previews' can fetch artwork from public websites when a link has none saved.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../assets/readme/inspector-dark.jpg">
+  <img alt="The inspector open beside a demo list" src="../assets/readme/inspector-light.jpg">
+</picture>
 
 **The inspector.** Click a reminder to edit its title, notes, list, date and time, repeat rule, priority, flag, URL, tags, section, assignment, Early Reminder, and location. It shows subtasks and attachments; click an image to preview it or save it to Downloads. Drop an image (PNG, JPEG, WebP, or HEIC, up to 8 MB) or a web link onto a reminder to attach it. Unsaved edits stay with each reminder while the workspace is open. Save with ⌘S, or click 'Cancel' to discard them.
 

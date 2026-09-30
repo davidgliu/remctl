@@ -13597,7 +13597,7 @@ def cmd_setup(a):
         print("  1. remctl doctor --for-agent")
         print("  2. Run remctl onboard only if doctor reports host permission trouble")
         print("Upgrade or reinstall: run ./install.sh first, then follow the checks above")
-        print("  Official 1.7.1 transition: treat 1.8.0 as a first host install and run onboard")
+        print("  Official 1.7.1 transition: treat 2.0 as a first host install and run onboard")
         print("  Repair: remctl permissions full-disk-access   # reopen the host-only FDA guide")
         if getattr(a, "doctor", False):
             print()
@@ -14173,7 +14173,7 @@ def build_parser():
             f"  2. {CLI_NAME} doctor --for-agent\n"
             f"  3. Run {CLI_NAME} onboard only if doctor reports host permission trouble\n"
             "     These steps are for an existing signed host. After official 1.7.1, run onboard\n"
-            "     because 1.8.0 installs the host for the first time.\n"
+            "     because 2.0 installs the host for the first time.\n"
             f"Repair: {CLI_NAME} permissions full-disk-access   # reopen the host-only FDA guide\n"
             "\n"
             "Examples:\n"
@@ -15080,7 +15080,7 @@ def build_parser():
             "opens the host-only FDA guide if needed. On an unchanged existing install, start\n"
             "with `remctl doctor --for-agent`, and onboard only if doctor reports host permission\n"
             "trouble. For an upgrade or reinstall, run `./install.sh`, then doctor. That rule\n"
-            "assumes an existing signed host. After official 1.7.1, run onboard because 1.8.0\n"
+            "assumes an existing signed host. After official 1.7.1, run onboard because 2.0\n"
             "installs the host for the first time. After an FDA change, restart the host before\n"
             "doctor. Use `remctl\n"
             "permissions full-disk-access` only to reopen the guide for repair."

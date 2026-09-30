@@ -19,7 +19,7 @@ You don't need an Apple account, a developer membership, Homebrew, or your own P
 
 ## Download
 
-Download `RemCTL-arm64.dmg` (Apple silicon) or `RemCTL-x86_64.dmg` (Intel) from [Releases](https://github.com/viticci/remctl/releases), open it, and double-click 'Install RemCTL.command'.
+Download `RemCTL-arm64.dmg` from [Releases](https://github.com/viticci/remctl/releases), open it, and double-click 'Install RemCTL.command'. The download is for Macs with Apple silicon. On an Intel Mac, [build it yourself](#build-it-yourself); that route is designed for Intel too, but it hasn't been tested on one yet.
 
 From a checkout, this does the same thing:
 

@@ -16,6 +16,8 @@
 ### Codex plugin
 
 - New: a RemCTL plugin for Codex on the Mac, with a full Reminders workspace. It has list, column, and calendar layouts; an inspector for every field; drag and drop; a command palette; quick add; pinned list tiles; inline notes, link previews, and images; editors for smart lists, templates, groups, and Groceries lists; Recently Deleted; `.remctl`, JSON, and CSV export; and a reviewed import. Selected reminders can be attached to a conversation. See [docs/desktop-plugin.md](docs/desktop-plugin.md).
+- The workspace is drawn like a Mac app: a glass sidebar that works like Reminders (gradient tiles, round list icons, collapsible groups), a wash tinted by the current list's color, section cards, and Kanban lanes where subtasks stay inside their lane. It follows the Mac's light or dark appearance, even when the host never reports a theme change, and each list remembers its own layout. Pop-up menus and the date picker are the workspace's own, instead of the web view's native controls.
+- The plugin's version matches RemCTL: 2.0.0.
 - `REMCTL_PLUGIN=1` starts `remctl mcp` in plugin mode, with 46 app-only tools on top of the standard 21 and the workspace UI. A new internal `workspace` command reads bounded snapshots through the host.
 - MCP Events: the server advertises `events` with ten reminder and list events, delivered as signed webhooks with filters, retries, and expiry. The workspace hides it until a client can subscribe.
 

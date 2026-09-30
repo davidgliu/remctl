@@ -1,6 +1,9 @@
 # RemCTL
 
-![RemCTL](https://cdn.macstories.net/images/uploads/2026/05/26/cleanshot-2026-05-26-at-1629152x-1779805785287-9271e938c2.png)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/readme/today-dark.jpg">
+  <img alt="The RemCTL workspace in Codex, showing Today with a Reminders-style sidebar" src="assets/readme/today-light.jpg">
+</picture>
 
 RemCTL gives you full control of Apple Reminders from the terminal, from AI apps, and from a Reminders workspace inside Codex. It covers the basics (reminders, lists, due dates, flags, and search) as well as features Apple doesn't expose to other apps, such as sections, tags, subtasks, smart lists, and templates.
 
@@ -10,9 +13,9 @@ Everything goes through **RemCTL Capability Host**, a small signed app that hold
 
 You need macOS 14 or later with iCloud Reminders turned on. You don't need an Apple developer account, Xcode, or your own copy of Python.
 
-**Download (recommended).** Download `RemCTL-arm64.dmg` (or `RemCTL-x86_64.dmg` for Intel Macs) from [Releases](https://github.com/viticci/remctl/releases), open it, and double-click 'Install RemCTL.command'. Terminal opens, checks that the app is signed by MacStories and notarized by Apple, installs it, and walks you through permissions.
+**Download (recommended).** On a Mac with Apple silicon, download `RemCTL-arm64.dmg` from [Releases](https://github.com/viticci/remctl/releases), open it, and double-click 'Install RemCTL.command'. Terminal opens, checks that the app is signed by MacStories and notarized by Apple, installs it, and walks you through permissions.
 
-**Build it yourself (free).** Install Apple's Command Line Tools once, then build from this repo:
+**Build it yourself (free).** This is also the route for Intel Macs. Install Apple's Command Line Tools once, then build from this repo:
 
 ```bash
 xcode-select --install
@@ -53,6 +56,8 @@ Switching between the download and your own build changes the app's signature. T
 
 ## Use it from the terminal
 
+![RemCTL's splash screen in Terminal](assets/readme/cli-splash.jpg)
+
 ```bash
 remctl today                      # due today and overdue
 remctl upcoming 7                 # the next week
@@ -83,7 +88,12 @@ The [MCP guide](docs/mcp.md) has the full tool list and troubleshooting. There's
 
 ## Use it in Codex
 
-The RemCTL plugin for Codex on the Mac adds a full Reminders workspace: list, column, and calendar layouts, an inspector for every reminder field, drag and drop, a command palette, quick add, and your real list icons and colors. You can attach specific reminders to a conversation, and your reminders stay in Apple Reminders.
+The RemCTL plugin for Codex on the Mac adds a full Reminders workspace, with a sidebar that works like the Reminders app: list, column, and calendar layouts, an inspector for every reminder field, drag and drop, a command palette, quick add, and your real list icons and colors. It follows your Mac's light and dark appearance, remembers the layout you pick for each list, and keeps your reminders in Apple Reminders. You can attach specific reminders to a conversation.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/readme/columns-dark.jpg">
+  <img alt="Today in the columns layout of the RemCTL workspace" src="assets/readme/columns-light.jpg">
+</picture>
 
 Install RemCTL first, then add the plugin from the installed app:
 
