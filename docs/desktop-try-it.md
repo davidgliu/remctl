@@ -2,7 +2,7 @@
 
 Open **Reminders** in the app sidebar. All examples below use the `RemCTL Studio` demo lists, so your own reminders can stay untouched.
 
-1. **Capture without losing your place.** Click New Reminder or press N. Add a title, choose a date and list, then press Return. Use ⌘Return to add several in succession. Escape and reopen to check draft retention. Hover a demo list and click its pin; it moves to the top of its group.
+1. **Capture without losing your place.** Click New Reminder or press N. Add a title, choose a date and list, then press Return. Use ⌘Return to add several in succession. Escape and reopen to check draft retention. Hover a demo list and click its pin; it becomes a colored tile at the top. Unpin it from the tile or its right-click menu to return it to its original group. Try the same with a custom smart list.
 2. **Work from the keyboard.** Open `RemCTL Studio · Demo`, press ⌘K, search for an action, and use arrow keys and Shift–Down to select tasks. Escape closes menus and details.
 3. **Open a task.** Click “Polish the four-circle app icon”, or select it and press Return. Edit its notes, add a tag, change its priority or repeat rule, and inspect its image. Click the image for a larger preview or its download button to save a copy.
 4. **Move a plan around.** Switch to Columns and drag two selected demo tasks between sections. Switch to Calendar and drag “Refine the reminder inspector” to another day; its time should stay 14:30.

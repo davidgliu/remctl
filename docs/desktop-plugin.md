@@ -26,7 +26,7 @@ Open **New Reminder** or press **N** for floating Quick Add. The panel stays abo
 
 Rows show notes, saved link cards and image attachments inline. Saved Apple link artwork takes precedence; **Load missing link previews** can fetch artwork from public linked websites when no saved image exists. Today separates overdue, all-day, morning, afternoon and evening reminders. App Radar notes show their changelog without changing the original stored notes.
 
-Hover over a sidebar list to reveal its pin button. Click to pin or unpin; pinned lists move to the top of their sidebar group. Pins sync with Apple Reminders. The button also works from the keyboard and for custom smart lists.
+Hover over a sidebar list to reveal its pin button. Click to pin or unpin; pinned regular and custom smart lists become colored tiles at the top, in the same pin order as Apple Reminders. Pinning a list removes its duplicate row below; unpinning restores it to its list or group. The tile keeps its icon, count, right-click menu and reminder drop target. Built-in smart tiles respect Reminders’ hidden state, while the other views remain reachable below. Pins sync with Apple Reminders. The button also works from the keyboard and for custom smart lists.
 
 ## Keyboard
 

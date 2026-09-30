@@ -169,6 +169,28 @@ def _read(db, request, api, operation):
             counts["scheduled"] += int(due(row) is not None)
             counts["today"] += int(due(row) is not None and due(row) <= today)
 
+    # Count pinned smart lists from the same predicates as their destination. Read
+    # only filtering fields here; artwork and attachment payloads stay lazy.
+    pinned_smart = [item for item in smart if item.get("kind") == "custom" and item.get("pinned") and item.get("filter", {}).get("supported")]
+    if pinned_smart:
+        candidates = []
+        needs_location = any(_filter_uses(item["filter"], "location") for item in pinned_smart)
+        for row in rows:
+            if row["ZCOMPLETED"]:
+                continue
+            item = api["to_dict"](row)
+            item.update(listId=row["ZLIST"], listUUID=by_id.get(row["ZLIST"], {}).get("objectUUID"),
+                        tags=[tag["ZNAME"] for tag in api["q_hashtags"](db, row["Z_PK"])])
+            if needs_location:
+                item["alarms"] = api["alarm_rows_to_json"](api["q_alarms"](db, row["Z_PK"]))
+            candidates.append(item)
+        for smart_list in pinned_smart:
+            try:
+                smart_list["count"] = sum(matches_smart(item, smart_list["filter"], today) for item in candidates)
+            except ValueError:
+                # An unsupported predicate must never masquerade as an empty list.
+                smart_list["count"] = None
+
     if view == "deleted":
         deleted = api["deleted_reminders"](db, json_mode=True)
         selected = [item for item in deleted if not query or query in item["title"].casefold()]
@@ -230,6 +252,10 @@ def _read(db, request, api, operation):
             "lists": lists, "sections": sections, "smartLists": smart, "counts": counts,
             "view": view, "listId": request.get("listId"), "timezone": str(now.tzinfo),
             "generatedAt": now.isoformat(), "snapshot": revision([dict(row) for row in rows])}
+
+
+def _filter_uses(spec, kind):
+    return spec.get("kind") == kind or any(_filter_uses(child, kind) for child in spec.get("filters", []))
 
 
 def matches_smart(item, spec, today):

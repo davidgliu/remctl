@@ -74,6 +74,8 @@ import {
   earlyReminderText,
   isReminder,
   todaySection,
+  systemListVisible,
+  pinnedSidebarLists,
 } from "./reminder-helpers";
 import {TagEditor, AttachmentGallery, SmartListEditor} from "./power";
 import {DueEditor} from "./date-editor";
@@ -86,6 +88,7 @@ const VIEWS = [
   ["scheduled", "Scheduled", CalendarDays, "red"],
   ["flagged", "Flagged", Flag, "orange"],
   ["all", "All", Layers, "gray"],
+  ["completed", "Completed", CheckCheck, "gray"],
 ] as const;
 const COLORS = [
   "#54b652",
@@ -904,6 +907,11 @@ function Workspace() {
     const response = await change(list.pinned ? "manage_list_unpin" : "manage_list_pin", {...(smart ? {smart_list_id: list.id} : {list_id: list.id}), private: true});
     if (response.status !== "partial" && response.status !== "uncertain") setToast(list.pinned ? "List unpinned" : "List pinned");
   });
+  const smartListActions = (list: D): Action[] => [
+    {label: list.pinned ? "Unpin smart list" : "Pin smart list", disabled: !settings.advancedFeatures, run: () => togglePin(list, true)},
+    {label: "Edit smart list…", run: () => openAction("manage_smart_list_edit", {smart_list_id: list.id, private: true})},
+    {label: "Delete smart list…", danger: true, run: () => openAction("manage_smart_list_delete", {smart_list_id: list.id, private: true})},
+  ];
   const pinButton = (list: D, smart = false) => !list.isGroup && <button type="button" className={"list-pin " + (list.pinned ? "pinned" : "")} aria-label={`${list.pinned ? "Unpin" : "Pin"} ${list.title || list.name}`} aria-pressed={Boolean(list.pinned)} title={settings.advancedFeatures ? (list.pinned ? "Unpin list" : "Pin list") : "Enable Advanced Reminders features to pin lists"} disabled={busy || !settings.advancedFeatures} onClick={() => togglePin(list, smart)}><Pin size={12} fill={list.pinned ? "currentColor" : "none"}/></button>;
   const listActions = (list: D): Action[] =>
     list.isGroup
@@ -1419,15 +1427,16 @@ function Workspace() {
               <Paperclip size={17} /><span>Selected Reminders</span><small>{attached.length}</small>
             </button>
           )}
-          <div className="smart-grid">
-            {VIEWS.map(([id, label, Icon, color]) => (
+          <div className="sidebar-scroll">
+          <div className="smart-grid" aria-label="Pinned lists and smart lists">
+            {VIEWS.filter(([id]) => systemListVisible(data.smartLists || [], id)).map(([id, label, Icon, color]) => (
               <button
                 key={id}
                 className={
                   "smart-card " +
                   color +
                   " " +
-                  (query.view === id && !query.listId ? "chosen" : "")
+                  (query.view === id && !query.listId && !query.smartId ? "chosen" : "")
                 }
                 onClick={() => navigate({ view: id })}
               >
@@ -1440,6 +1449,23 @@ function Workspace() {
                 <span>{label}</span>
               </button>
             ))}
+            {pinnedSidebarLists(lists, data.smartLists || []).map((list: D) => {
+              const smart = list.sidebarKind === "smart", title = list.title || list.name;
+              const selected = smart ? query.smartId === list.id : query.listId === list.id;
+              return <div className="pinned-tile" key={`${list.sidebarKind}-${list.id}`} style={{"--card": colorFor(list)} as React.CSSProperties}>
+                <button className={"smart-card " + (selected ? "chosen" : "")} aria-label={`${title}, pinned${smart ? " smart" : ""} list`} title={title}
+                  onClick={() => navigate(smart ? {view: "smart", smartId: list.id} : {view: "list", listId: list.id})}
+                  onContextMenu={(e) => showContext(e, smart ? smartListActions(list) : listActions(list))}
+                  onDragOver={smart ? undefined : (e) => e.preventDefault()}
+                  onDrop={smart ? undefined : (e) => dropIntoList(e, list)}
+                  data-drop-kind={smart ? undefined : "list"} data-drop-id={smart ? undefined : list.id}
+                  onPointerDown={(e) => {if (!smart && settings.advancedFeatures) internalDrag.begin(e, {kind: "list", id: list.id, label: title});}}>
+                  <span className="smart-top"><ListBadge list={{...list, badge: {...list.badge, image: symbols[list.badge?.symbol || "default"] || list.badge?.image}}} color={colorFor(list)}/><strong>{list.count ?? (smart ? "—" : 0)}</strong></span>
+                  <span className="smart-title">{title}</span>
+                </button>
+                {pinButton(list, smart)}
+              </div>;
+            })}
           </div>
           <nav>
             <button
@@ -1451,15 +1477,7 @@ function Workspace() {
               <UserRound size={16} />
               <span>Assigned to Me</span>
             </button>
-            <button
-              className={
-                "nav-row " + (query.view === "completed" ? "chosen" : "")
-              }
-              onClick={() => navigate({ view: "completed" })}
-            >
-              <CheckCheck size={16} />
-              <span>Completed</span>
-            </button>
+            {VIEWS.filter(([id]) => !systemListVisible(data.smartLists || [], id)).map(([id, label, Icon]) => <button key={id} className={"nav-row " + (query.view === id ? "chosen" : "")} onClick={() => navigate({view: id})}><Icon size={16}/><span>{label}</span></button>)}
             <div className="nav-label">
               My Lists
               <IconButton
@@ -1470,8 +1488,7 @@ function Workspace() {
               </IconButton>
             </div>
             {lists
-              .filter((l: D) => !l.parentListId)
-              .sort((a: D, b: D) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)))
+              .filter((l: D) => !l.parentListId && (l.isGroup || !l.pinned))
               .map((list: D, index: number) => (
                 <React.Fragment key={list.id}>
                   <div className="sidebar-list-row">
@@ -1502,8 +1519,7 @@ function Workspace() {
                   </div>
                   {list.isGroup &&
                     lists
-                      .filter((l: D) => l.parentListId === list.id)
-                      .sort((a: D, b: D) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)))
+                      .filter((l: D) => l.parentListId === list.id && !l.pinned)
                       .map((child: D, j: number) => (
                         <div className="sidebar-list-row" key={child.id}>
                         <button
@@ -1541,8 +1557,7 @@ function Workspace() {
               ))}
             <div className="nav-label">Smart Lists<button aria-label="New smart list" disabled={!settings.advancedFeatures} onClick={()=>openAction("manage_smart_list_create")}><Plus size={14}/></button></div>
             {data.smartLists
-              ?.filter((l: D) => l.kind === "custom")
-              .sort((a: D, b: D) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)))
+              ?.filter((l: D) => l.kind === "custom" && !l.pinned)
               .map((l: D) => (
                 <div className="sidebar-list-row" key={l.id}>
                 <button
@@ -1550,11 +1565,7 @@ function Workspace() {
                     "nav-row " + (query.smartId === l.id ? "chosen" : "")
                   }
                   onClick={() => navigate({ view: "smart", smartId: l.id })}
-                  onContextMenu={(e) => showContext(e, [
-                    {label: l.pinned ? "Unpin smart list" : "Pin smart list", disabled: !settings.advancedFeatures, run: () => togglePin(l, true)},
-                    {label: "Edit smart list…", run: () => openAction("manage_smart_list_edit", {smart_list_id: l.id, private: true})},
-                    {label: "Delete smart list…", danger: true, run: () => openAction("manage_smart_list_delete", {smart_list_id: l.id, private: true})},
-                  ])}
+                  onContextMenu={(e) => showContext(e, smartListActions(l))}
                 >
                   <ListBadge list={{...l, badge: {...l.badge, image: symbols[l.badge?.symbol || "default"]}}} color={colorFor(l)} />
                   <span>{l.name}</span>
@@ -1563,6 +1574,7 @@ function Workspace() {
                 </div>
               ))}
           </nav>
+          </div>
           <div className="sidebar-footer">
             <button
               className="nav-row"

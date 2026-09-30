@@ -121,3 +121,15 @@ export function todaySection(item: Record<string, any>, date: string) {
   const hour = Number(due.slice(11,13));
   return hour < 12 ? 'Morning' : hour < 17 ? 'Afternoon' : 'Tonight';
 }
+
+// A negative pin date is Reminders' explicit hidden state; an absent date uses its default.
+export function systemListVisible(smartLists: D[], view: string): boolean {
+  const item = smartLists.find(list => list.kind === "built-in" && list.smartListType?.endsWith("." + view));
+  return item ? Boolean(item.pinned) || item.pinnedDate == null : ["today", "scheduled", "flagged", "all"].includes(view);
+}
+
+export function pinnedSidebarLists(lists: D[], smartLists: D[]): D[] {
+  return [...lists.filter(list => list.pinned && !list.isGroup).map(list => ({...list, sidebarKind: "list"})),
+    ...smartLists.filter(list => list.pinned && list.kind === "custom").map(list => ({...list, sidebarKind: "smart"}))]
+    .sort((a: D, b: D) => (a.pinnedDate ?? Number.MAX_SAFE_INTEGER) - (b.pinnedDate ?? Number.MAX_SAFE_INTEGER));
+}

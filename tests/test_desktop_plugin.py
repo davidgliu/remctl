@@ -96,6 +96,23 @@ class DesktopPluginTests(unittest.TestCase):
         self.assertFalse(matches_smart({**item,"dueDate":None},spec,date(2026,9,30)))
         self.assertTrue(matches_smart({"tags":[]},summarize_smart_list_filter({"hashtags":{"untagged":""}},strict=True),date.today()))
 
+    def test_pinned_smart_count_excludes_completed_and_uses_tags_without_artwork(self):
+        rows = [{"Z_PK": i, "ZLIST": 1, "ZCOMPLETED": completed, "ZFLAGGED": 1} for i, completed in [(1, False), (2, False), (3, True)]]
+        api = {
+            "q_all_lists": lambda db: [{"id": 1, "title": "Demo", "objectUUID": "list-id"}],
+            "list_to_dict": lambda row: row, "q_sections": lambda db: [],
+            "q_section_memberships": lambda db, identifier: {}, "search_fold": lambda value: value,
+            "q_smart_lists": lambda db: [{"id": 9, "kind": "custom", "pinned": True, "filter": {"supported": True, "kind": "tags", "tags": ["demo"]}}],
+            "smart_list_to_dict": lambda row: row, "q_reminders": lambda db, **kwargs: rows,
+            "row_effective_due": lambda row: None, "ts": lambda value: None,
+            "to_dict": lambda row: {"id": row["Z_PK"], "flagged": True},
+            "q_hashtags": lambda db, identifier: [{"ZNAME": "demo"}] if identifier in {1, 3} else [],
+            "deleted_reminders": lambda db, **kwargs: [],
+        }
+        value = _read(None, {"view": "deleted"}, api, "query")
+        self.assertEqual(value["smartLists"][0]["count"], 1)
+        self.assertEqual(value["counts"]["all"], 2)
+
     def test_worker_retains_ui_that_matches_its_contract_after_install(self):
         with patch.object(Path,"read_text",side_effect=AssertionError("Do not load another build's UI")):
             resource=self.server.plugin.resource(p.UI_URI,None)
