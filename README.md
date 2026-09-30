@@ -1,9 +1,6 @@
 # RemCTL
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="assets/readme/today-dark.jpg">
-  <img alt="The RemCTL workspace in Codex, showing Today with a Reminders-style sidebar" src="assets/readme/today-light.jpg">
-</picture>
+![RemCTL's splash screen and today's reminders in Terminal](https://cdn.macstories.net/images/uploads/2026/09/30/15-cli-today-1790776847710-fed98e698d.png)
 
 RemCTL gives you full control of Apple Reminders from the terminal, from AI apps, and from a Reminders workspace inside Codex. It covers the basics (reminders, lists, due dates, flags, and search) as well as features Apple doesn't expose to other apps, such as sections, tags, subtasks, smart lists, and templates.
 
@@ -56,8 +53,6 @@ Switching between the download and your own build changes the app's signature. T
 
 ## Use it from the terminal
 
-![RemCTL's splash screen in Terminal](assets/readme/cli-splash.jpg)
-
 ```bash
 remctl today                      # due today and overdue
 remctl upcoming 7                 # the next week
@@ -90,11 +85,6 @@ The [MCP guide](docs/mcp.md) has the full tool list and troubleshooting. There's
 
 The RemCTL plugin for Codex on the Mac adds a full Reminders workspace, with a sidebar that works like the Reminders app: list, column, and calendar layouts, an inspector for every reminder field, drag and drop, a command palette, quick add, and your real list icons and colors. It follows your Mac's light and dark appearance, remembers the layout you pick for each list, and keeps your reminders in Apple Reminders. You can attach specific reminders to a conversation.
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="assets/readme/columns-dark.jpg">
-  <img alt="Today in the columns layout of the RemCTL workspace" src="assets/readme/columns-light.jpg">
-</picture>
-
 Install RemCTL first, then add the plugin from the installed app:
 
 ```bash
@@ -103,6 +93,14 @@ codex plugin add remctl@remctl-local
 ```
 
 Open 'Reminders' in the Codex sidebar, or ask Codex to open your Reminders workspace. The [Codex plugin guide](docs/desktop-plugin.md) covers updates, settings, keyboard shortcuts, and removal.
+
+![A RemCTL list in Codex with a reminder open in the inspector](https://cdn.macstories.net/images/uploads/2026/09/30/07-inspector-light-1790776780368-d6ee34a75e.png)
+
+![The calendar layout in dark mode](https://cdn.macstories.net/images/uploads/2026/09/30/12-calendar-dark-1790776812431-03166da0b7.png)
+
+![The columns layout, with one column per section](https://cdn.macstories.net/images/uploads/2026/09/30/05-kanban-demo-light-1790776758217-8b3e480458.png)
+
+![The command palette](https://cdn.macstories.net/images/uploads/2026/09/30/13-command-palette-light-1790776824784-63935204c2.png)
 
 ## Private metadata
 
