@@ -6253,9 +6253,7 @@ def capability_host_target_specs(status=None):
         or app.get("bundleIdentifier") != remctl_broker.BUNDLE_IDENTIFIER
         or signature.get("valid") is not True
         or signature.get("identifier") != remctl_broker.BUNDLE_IDENTIFIER
-        or not isinstance(signature.get("teamID"), str)
-        or not signature.get("teamID")
-        or signature.get("teamID") == "not set"
+        or not remctl_broker.has_stable_signing_identity(signature)
         or not isinstance(signature.get("cdhash"), str)
         or not signature.get("cdhash")
         or not isinstance(signature.get("designatedRequirement"), str)

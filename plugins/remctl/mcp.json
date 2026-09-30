@@ -3,14 +3,14 @@
   "mcpServers": {
     "remctl": {
       "type": "stdio",
-      "command": "python3",
+      "command": "/bin/sh",
       "args": [
         "-c",
-        "import os,pathlib; p=str(pathlib.Path.home()/'bin'/'remctl'); os.execv(p,[p,'mcp'])"
+        "exec \"$HOME/bin/remctl\" mcp"
       ],
       "env": {
         "REMCTL_PLUGIN": "1",
-        "REMCTL_PLUGIN_BUILD": "ce1b96aa37c32af6"
+        "REMCTL_PLUGIN_BUILD": "e53d4825b4d017bc"
       }
     }
   }

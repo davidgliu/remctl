@@ -6,17 +6,17 @@ There are two installed parts: the RemCTL CLI and signed Capability Host provide
 
 ## Requirements
 
-- A Mac with iCloud Reminders enabled and the [RemCTL installation requirements](installation.md#requirements): macOS 14+, CLI Python 3.10+, a protected host Python 3.13+, Xcode Command Line Tools, and an Apple Development signing identity.
+- A Mac with iCloud Reminders enabled and the [RemCTL installation requirements](installation.md#requirements): macOS 14+ and administrator authorization for its bundled Python. Free source builds also need Xcode Command Line Tools. No paid developer account is required.
 - Codex for Mac with local plugin and MCP app support, plus its `codex` command on your PATH. Check `codex plugin --help`. These instructions were verified with Codex CLI 0.159.0 on September 30, 2026; the CLI version alone does not establish desktop feature support.
 - The checkout containing `.agents/plugins/marketplace.json` and `plugins/remctl/plugin.json`. Keep this checkout in a stable location because Codex registers its path as the marketplace source.
 
 Node and npm are only required when changing the interface. Users install the checked-in `remctl_workspace.html` without a frontend build.
 
-The signing identity is a real source-install prerequisite. This distribution does not yet include a signed, notarized host download that removes that requirement. Do not use ad-hoc signing or grant permissions to Python as a substitute.
+Choose the notarized download or `./install.sh --from-source` for a free local build. Source builds create their own persistent certificate. The download is not yet published from this local work. The host remains the only permission target.
 
 ## First installation
 
-Open Terminal in this checkout. Follow [protected Python setup](installation.md#protected-python-permissions) if the installer reports an interpreter permission problem.
+Open Terminal in this checkout. Add `--from-source` to the installation command to build for free; omit it when a notarized release is available.
 
 ```sh
 ./install.sh --bootstrap --shell-completions none
@@ -45,7 +45,7 @@ codex plugin marketplace add .
 codex plugin add remctl@remctl-local
 ```
 
-Use the same installer path overrides and signing identity as the existing installation. Onboarding is only needed again if doctor reports missing permissions.
+Use `--from-source` for source-build updates and keep the same path overrides. Switching to the public signature requires explicit `--migrate-signing` and may require permission setup again. Onboarding is only needed again if doctor reports missing permissions.
 
 If Codex already has a plain RemCTL MCP connection, remove that duplicate after the plugin is installed:
 

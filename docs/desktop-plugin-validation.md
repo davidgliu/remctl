@@ -92,3 +92,17 @@ The [0.2.2 inspector screenshot](screenshots/desktop-inspector-022.png) shows th
 ChatGPT 26.928.21956 was tested in three fresh conversations: Codex, ChatGPT Work running locally, and regular Chat with the standalone RemCTL plugin explicitly selected. Both local work conversations opened the installed workspace. All three reported that native Events subscription and host-managed callback/signing-secret provisioning were unavailable. No subscription was claimed or created, and the demo reminder was left unchanged. [Events evidence](desktop-events.md#app-update-retry--build-12404) includes conversation identifiers and a screenshot.
 
 The updated plugin page now exposes RemCTL's native settings. Packaging integration details are in the [handoff](desktop-packaging-handoff.md); this retry changed documentation only, leaving the installed runtime and signing configuration intact.
+
+## Final desktop refinement — Events deferred
+
+Federico deferred Events on September 30. Activity and Watch entry points are hidden; the protocol implementation is retained for future work. The remaining desktop scope was refined and installed locally, without a gallery submission or push.
+
+The inspector now keeps drafts per task while the workspace stays open, puts Save and Cancel below its fixed header, supports Command-S, and exposes a date picker with explicit optional time. Attachments appear beside the task's core details. Section disclosure buttons collapse their rows, keyboard range selection skips collapsed sections, and wide task lists have a readable maximum width. Narrow panes automatically close the sidebar and provide explicit dismissal controls. Native date/time controls follow the selected app appearance.
+
+Installed acceptance in ChatGPT 26.928.21956/build 12404 used the standalone plugin and demo list 175. Conversation `01a0f143-5ce3-7101-b157-225b4624b431` verified Command-S by saving demo reminder 4979 for October 1 at 09:00. Standalone MCP confirmed `allDay: false`. Removing the time and choosing Today restored September 30 with `allDay: true`; MCP readback confirmed restoration. Image preview, draft retention and cancellation, arrow-key range selection, section collapse, and Command-K were exercised in the native app.
+
+Conversation `01a0f147-e1cb-7442-a3cb-083d3b749aad` verified the final responsive repair by resizing from 1341 to 390 points: the sidebar closed automatically, the inspector fit the pane, and the sidebar could be reopened and dismissed. Evidence: [narrow inspector](screenshots/desktop-narrow-final.png), [light desktop](screenshots/desktop-light-final.png).
+
+Final build `53e02600ba62dc06` passed TypeScript, UI interaction contracts, official extension schemas, production bundling, and whitespace validation. Installed HTML and Python plugin/workspace/MCP files matched source byte-for-byte. Installer diagnostics reported 16 checks, one expected direct-caller access warning, and zero failures; signed-host access and existing permission identity were preserved.
+
+The final build also passed the medium-width check in conversation `01a0f14c-4a82-7390-8693-5ad649026ecc`: at 785 points, the sidebar closes automatically and heading controls wrap, leaving room for the task list beside Details. Dark native date controls remain legible. Evidence: [medium-width dark workspace](screenshots/desktop-medium-dark-final.png). Generated HTML SHA256 prefix: `06e2d56c86bc7fa7`.

@@ -80,13 +80,27 @@ if [[ "$KEEP_CONFIG" != "1" ]]; then
     safe_config_dir || fail "Refusing suspicious config path before uninstall: $CONFIG_DIR"
 fi
 
+# A packaged installation supplies its own interpreter; uninstall must work on
+# Macs without Xcode's /usr/bin/python3 shim or another Python installation.
+UNINSTALL_PYTHON=/usr/bin/python3
+if [[ -f "$APP_PATH/Contents/Resources/distribution.json" ]]; then
+    /usr/bin/codesign --verify --deep --strict "$APP_PATH" || fail "Cannot use an invalid packaged runtime."
+    packaged_python="$(cat "$APP_PATH/Contents/Resources/remctl-capability-python-path")"
+    [[ "$packaged_python" == /Library/RemCTL/Python/*/bin/python3.13 ]] || fail "Invalid packaged Python path."
+    if [[ "$SKIP_LAUNCHSERVICES" == "1" ]]; then
+        packaged_python="$APP_PATH/Contents/Resources/Python/bin/python3.13"
+    fi
+    [[ -x "$packaged_python" ]] || fail "The packaged Python runtime is missing. Repair the installation before uninstalling."
+    UNINSTALL_PYTHON="$packaged_python"
+fi
+
 plist_value() {
     /usr/libexec/PlistBuddy -c "Print :$2" "$1" 2>/dev/null || true
 }
 
 agent_owned() {
     [[ -f "$AGENT_PATH" && ! -L "$AGENT_PATH" ]] || return 1
-    /usr/bin/python3 -I -S - "$AGENT_PATH" "$AGENT_LABEL" "$HOST_EXECUTABLE" "$SOCKET_PATH" <<'PYTHON'
+    "$UNINSTALL_PYTHON" -B -I -S - "$AGENT_PATH" "$AGENT_LABEL" "$HOST_EXECUTABLE" "$SOCKET_PATH" <<'PYTHON'
 import plistlib, sys
 path, label, host, socket = sys.argv[1:]
 try:
@@ -113,6 +127,12 @@ app_owned() {
     /usr/bin/codesign --verify --deep --strict "$APP_PATH" >/dev/null 2>&1 || return 1
     local resources="$APP_PATH/Contents/Resources"
     local runtime="$resources/CapabilityRuntime"
+    if [[ "$(cat "$resources/remctl-capability-host-socket-path" 2>/dev/null || true)" == "portable-user" ]]; then
+        for required in "$resources/distribution.json" "$resources/python-manifest.json" "$runtime/bin/remctl-bridge" "$runtime/bin/remctl-private"; do
+            [[ -f "$required" && ! -L "$required" ]] || return 1
+        done
+        return 0
+    fi
     for required in \
         "$resources/remctl-capability-python-path" \
         "$resources/remctl-capability-host-socket-path" \
@@ -130,7 +150,7 @@ app_owned() {
 
 bin_owned() {
     local bin_dir="$1"
-    /usr/bin/python3 -I -S - "$bin_dir" <<'PY'
+    "$UNINSTALL_PYTHON" -B -I -S - "$bin_dir" <<'PY'
 import hashlib,json,os,stat,sys
 root=sys.argv[1]; manifest=os.path.join(root,".remctl-install-manifest.json")
 managed={"remctl","remctl_runtime.py","remctl_images.py","remctl_serialization.py","remctl_smart_lists.py","remctl_broker.py","remctl_capability_policy.py","remctl_capabilities.py","remctl_mcp.py","remctl_events.py","remctl_workspace.py","remctl_plugin.py","remctl_workspace.html","remctl-list-symbols.json","remctl-list-artwork","remctl_mcp_widget.html","remctl-mcp-icon.png","remctl-mcp-icon-512.png","remctl-bridge","remctl-private","remctl-permissions","remctl-permissions-icon.png",".remctl-capability-host-app",".remctl-capability-host-signing-identity","completions/_remctl","completions/_rctl","completions/_reminders","rctl","reminders"}
@@ -179,7 +199,7 @@ stop_job() {
 }
 
 socket_owned() {
-    /usr/bin/python3 -I -S - "$SOCKET_PATH" <<'PY'
+    "$UNINSTALL_PYTHON" -B -I -S - "$SOCKET_PATH" <<'PY'
 import os, stat, sys
 path=sys.argv[1]; parent=os.path.dirname(path)
 metadata=os.lstat(path); parent_metadata=os.lstat(parent)
@@ -192,7 +212,7 @@ PY
 }
 
 safe_remove_socket() {
-    /usr/bin/python3 -I -S - "$SOCKET_PATH" <<'PY'
+    "$UNINSTALL_PYTHON" -B -I -S - "$SOCKET_PATH" <<'PY'
 import errno, os, socket, stat, sys
 path=sys.argv[1]; parent=os.path.dirname(path); name=os.path.basename(path)
 directory=os.open(parent,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)

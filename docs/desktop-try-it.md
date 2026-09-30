@@ -11,6 +11,6 @@ Open **Reminders** in the app sidebar. All examples below use the `RemCTL Studio
 7. **Try groceries and templates.** In `RemCTL Studio · Market`, add sample grocery items and categorize them. Save a demo list as a template and apply it to a new demo list.
 8. **Export the view.** Use More actions → Export JSON or CSV from the smart list. Only its matching reminders should be exported. A `.remctl` file also supports review before import; it is a copy, not a lossless backup.
 9. **Recover a demo task.** Delete a disposable reminder and use Recently Deleted to restore it. Identity and hierarchy use RemCTL's dedicated recovery path.
-10. **Inspect Events.** Open Activity or choose “Watch this reminder”. Review the scoped monitoring request. This installation has not exposed a native MCP Events subscription interface, so no ChatGPT automation is active. For the verified local protocol demos, run `PYTHONPATH=.:tests python3 tests/demo_event_automations.py` from this checkout.
+10. **Tune the workspace.** In Settings, try compact rows and dark appearance. Collapse a section, switch layouts, then reopen a task. Unsaved task edits stay with that task while the workspace remains open. Save with ⌘S or the button at the top of Details; Cancel discards the draft.
 
-Practical event recipes, once the host supports subscriptions: summarize the remaining release checklist when a task completes; explain a flagged task's changes; show a checklist when its rehearsal reminder becomes due. The Mac and RemCTL must be running.
+Events and event automations are deferred. They are not part of this desktop acceptance pass.

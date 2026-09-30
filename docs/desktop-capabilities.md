@@ -35,5 +35,5 @@ Recurrence, Early Reminders, alarms, urgency, locations, assignment and clear/re
 - Smart-list renaming is not offered because the underlying CLI does not support it. Identity, filter, color, emoji and symbol editing follow the CLI contract.
 - `.remctl` import copies supported fields into new reminders. It is not a lossless backup restore; omitted fields are shown before import.
 - Private ReminderKit features depend on the installed macOS implementation and require the existing Advanced Reminders setting.
-- [MCP Events](desktop-events.md) is implemented; native ChatGPT subscription acceptance remains limited by the tested desktop host.
+- [MCP Events](desktop-events.md) is deferred. The protocol implementation remains in the source, but Activity and Watch entry points are hidden and no native event automation is claimed.
 

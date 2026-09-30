@@ -51,7 +51,9 @@ The host verifies its own signature and runtime before running anything. It exec
 
 ## The Capability Host
 
-The host is an AppKit app signed with an Apple Development identity. macOS ties privacy grants to that signature, so the installer preserves the identity across upgrades and refuses to publish a build whose Team ID or designated requirement would change. This is why RemCTL does not use ad-hoc signing.
+The host is an AppKit app signed with a persistent certificate: Developer ID for public downloads, or a locally generated certificate for free source builds. Existing Apple Development builds remain supported. macOS ties privacy grants to that identity. Updates preserve its designated requirement (the rule macOS uses to recognize the app) and reject identity changes unless the user explicitly passes `--migrate-signing`. A local certificate is pinned by its exact fingerprint; ad-hoc signing is rejected.
+
+Portable builds carry their exact Python version and a signed manifest of its files. The host's administrator-only installer copies those bytes into a content-addressed, root-owned directory under `/Library/RemCTL/Python`. It verifies file hashes, modes, symlink containment and ownership before publication. The CLI and sealed host archive use that matching interpreter. The packaged app stays immutable when copied to a different user's home directory; the host accepts a user-specific socket, which the broker checks for safe ownership and permissions.
 
 The LaunchAgent keeps the host running and restarts it after login. `install.sh` publishes the app, the sealed archive, the LaunchAgent, and the socket as one transaction: it stages and verifies a complete generation, stops the old service, swaps the files, starts the new service, and only then commits. On failure it restores the previous generation. A hash manifest records every installed file so upgrades and the uninstaller refuse to touch files RemCTL does not own.
 

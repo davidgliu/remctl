@@ -74,7 +74,8 @@ import {
   earlyReminderText,
   isReminder,
 } from "./reminder-helpers";
-import {TagEditor, AttachmentGallery, SmartListEditor, EventActivity} from "./power";
+import {TagEditor, AttachmentGallery, SmartListEditor} from "./power";
+import {DueEditor} from "./date-editor";
 import icon from "../../plugins/remctl/assets/icon.png";
 import "./style.css";
 const VIEWS = [
@@ -184,11 +185,19 @@ function Workspace() {
     [search, setSearch] = useState(""),
     [newTitle, setNewTitle] = useState(""),
     [undo, setUndo] = useState<D | null>(null),
-    [sidebar, setSidebar] = useState(window.innerWidth > 760),
+    [sidebar, setSidebar] = useState(window.innerWidth > 1100),
     [file, setFile] = useState<D | null>(null),
     [month, setMonth] = useState(new Date()),
     [menu, setMenu] = useState(false),
-    [collapsed, setCollapsed] = useState<number[]>([]);
+    [collapsed, setCollapsed] = useState<number[]>([]),
+    [collapsedSections, setCollapsedSections] = useState<string[]>([]);
+  useEffect(() => {
+    const wide = window.matchMedia("(min-width: 1101px)");
+    const resize = () => setSidebar(wide.matches);
+    wide.addEventListener("change", resize);
+    return () => wide.removeEventListener("change", resize);
+  }, []);
+  const drafts = useRef(new Map<number, {fields: D; revision: string}>());
   const selectionAnchor = useRef<number | null>(null);
   const selectionFocus = useRef<number | null>(null);
   const draggingIds = useRef<number[]>([]);
@@ -261,9 +270,11 @@ function Workspace() {
     [],
   );
   const navigate = (next: D) => {
+    if (window.innerWidth <= 1100) setSidebar(false);
     queryRef.current = next;
     setData((old) => ({ ...old, items: [], total: undefined, nextOffset: null }));
     setReadFailed(false);
+    setCollapsedSections([]);
     setQuery(next);
     setSearch("");
     setDetail(null);
@@ -433,11 +444,10 @@ function Workspace() {
     return () => clearTimeout(t);
   }, [toast]);
   useEffect(() => {
-    if (settings.theme && settings.theme !== "system")
-      document.documentElement.dataset.theme = settings.theme;
-    else
-      document.documentElement.dataset.theme =
-        hostTheme;
+    const theme = settings.theme && settings.theme !== "system" ? settings.theme : hostTheme;
+    document.documentElement.dataset.theme = theme;
+    // Native date/time controls must follow the app override as well as host CSS.
+    document.documentElement.style.colorScheme = theme;
   }, [settings.theme, hostTheme]);
   const selected = (surface === "selection" ? attachedDetails : data.items)
     .filter((i: D) => selection.includes(i.id));
@@ -546,7 +556,7 @@ function Workspace() {
   const select = (item: D, event: React.MouseEvent) => {
     selectionFocus.current = item.id;
     if (event.shiftKey)
-      setSelection(selectionRange(visible, selectionAnchor.current, item.id));
+      setSelection(selectionRange(navigable, selectionAnchor.current, item.id));
     else if (event.metaKey || event.ctrlKey) {
       selectionAnchor.current = item.id;
       setSelection((old) =>
@@ -571,6 +581,7 @@ function Workspace() {
         "input,textarea,select,[contenteditable]",
       );
       if (e.defaultPrevented) return;
+      if (!editing && (e.target as HTMLElement).closest("button,a") && [" ", "Enter", "ArrowDown", "ArrowUp"].includes(e.key)) return;
       if (
         (e.metaKey || e.ctrlKey) &&
         e.key.toLowerCase() === "z" &&
@@ -614,17 +625,17 @@ function Workspace() {
         quickRef.current?.focus();
       } else if (!editing && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
         e.preventDefault();
-        const index = visible.findIndex(
+        const index = navigable.findIndex(
           (i: D) =>
             i.id ===
             (selectionFocus.current ?? selection[selection.length - 1]),
         );
         const row =
-          visible[
+          navigable[
             Math.max(
               0,
               Math.min(
-                visible.length - 1,
+                navigable.length - 1,
                 index + (e.key === "ArrowDown" ? 1 : -1),
               ),
             )
@@ -633,7 +644,7 @@ function Workspace() {
           selectionFocus.current = row.id;
           if (e.shiftKey)
             setSelection(
-              selectionRange(visible, selectionAnchor.current, row.id),
+              selectionRange(navigable, selectionAnchor.current, row.id),
             );
           else {
             selectionAnchor.current = row.id;
@@ -650,7 +661,7 @@ function Workspace() {
         openDetail(selected[0]);
       else if ((e.metaKey || e.ctrlKey) && e.key === "a" && !editing) {
         e.preventDefault();
-        setSelection(visible.map((i: D) => i.id));
+        setSelection(navigable.map((i: D) => i.id));
       }
     };
     window.addEventListener("keydown", key);
@@ -660,6 +671,7 @@ function Workspace() {
     selection,
     settings,
     collapsed,
+    collapsedSections,
     contextMenu,
     modal,
     detail,
@@ -692,8 +704,10 @@ function Workspace() {
       : data.items,
     collapsed,
   );
+  const sectionKey = (item: D) => query.listId && item.groupSection ? item.groupSection : query.view === "today" ? ((item.displayDate || item.dueDate)?.slice(0, 10) < today() ? "Overdue" : "Today") : query.view === "scheduled" || layout === "calendar" ? ((item.displayDate || item.dueDate)?.slice(0, 10) || "No date") : "Reminders";
+  const navigable = layout === "list" ? visible.filter(item => !collapsedSections.includes(sectionKey(item))) : visible;
   const groups: Record<string, D[]> = {};
-  if (query.listId && layout !== "calendar")
+  if (query.listId && layout !== "calendar" && (!loading || visible.length))
     for (const section of data.sections || [])
       if (section.listId === query.listId) groups[section.title] = [];
   for (const item of visible) {
@@ -709,7 +723,7 @@ function Workspace() {
             : "Reminders";
     (groups[key] ||= []).push(item);
   }
-  if (query.listId)
+  if (query.listId && (!loading || visible.length))
     for (const section of data.sections || [])
       if (section.listId === query.listId) groups[section.title] ||= [];
   const openAction = (name: string, defaults: D = {}) => {
@@ -1133,7 +1147,6 @@ function Workspace() {
             },
           }))
       : []),
-    {label:"Event activity & monitoring",icon:<Radio size={17}/>,run:()=>setModal({kind:"events"})},
     {label:"Go to Urgent",run:()=>{navigate({view:"urgent"});setModal(null);}},
     {label:"Go to Overdue",run:()=>{navigate({view:"overdue"});setModal(null);}},
     ...VIEWS.map(([id, label, Icon]) => ({
@@ -1226,6 +1239,7 @@ function Workspace() {
         (detail?.id === item.id ? "inspected" : "")
       }
       role="option"
+      tabIndex={item.id === (selection[0] ?? navigable[0]?.id) ? 0 : -1}
       data-reminder-id={item.id}
       data-drop-kind="reminder"
       data-drop-id={item.id}
@@ -1244,7 +1258,7 @@ function Workspace() {
           e.currentTarget.classList.remove("drag-target");
       }}
       onDrop={(e) => drop(e, item)}
-      onClick={(e) => select(item, e)}
+      onClick={(e) => { e.currentTarget.focus(); select(item, e); }}
     >
       <button
         className={"check " + (item.completed ? "checked" : "")}
@@ -1369,8 +1383,9 @@ function Workspace() {
       {sidebar && surface !== "file" && surface !== "inline" && (
         <aside className="sidebar">
           <div className="brand">
-            <img src={icon} />
+            <img src={icon} alt="RemCTL" />
             <span>RemCTL</span>
+            <button className="sidebar-close" aria-label="Close sidebar" onClick={() => setSidebar(false)}><X size={16}/></button>
             <IconButton
               label="Command palette"
               onClick={() => setModal({ kind: "commands" })}
@@ -1539,7 +1554,6 @@ function Workspace() {
               ))}
           </nav>
           <div className="sidebar-footer">
-            <button className="nav-row" onClick={()=>setModal({kind:"events"})}><Radio size={14}/><span>Activity</span></button>
             <button
               className="nav-row"
               onClick={() => navigate({ view: "deleted" })}
@@ -1561,6 +1575,7 @@ function Workspace() {
           </div>
         </aside>
       )}
+      {sidebar && <button className="sidebar-backdrop" aria-label="Dismiss sidebar" onClick={() => setSidebar(false)} />}
       <main>
         {surface !== "file" && <header className="toolbar">
           <div className="toolbar-left">
@@ -1686,7 +1701,7 @@ function Workspace() {
           <FileView file={file} run={run} report={report} />
         ) : (
           <div className="main-body">
-            <div className="collection">
+            <div className={`collection layout-${layout}`}>
               <div className="collection-heading">
                 <div>
                   <div className="eyebrow">
@@ -2003,19 +2018,22 @@ function Workspace() {
                   {Object.entries(groups).map(([name, items]) => (
                     <section key={name}>
                       {name !== "Reminders" && (
-                        <div
-                          className="section-heading"
+                        <button
+                          className="section-heading section-disclosure"
+                          aria-expanded={!collapsedSections.includes(name)}
+                          aria-label={`${collapsedSections.includes(name) ? "Expand" : "Collapse"} section ${name}`}
+                          onClick={() => {setCollapsedSections(old => old.includes(name) ? old.filter(v => v !== name) : [...old, name]); setSelection([]);}}
                           onContextMenu={(e) => {
                             const items = sectionActions(name);
                             if (items.length) showContext(e, items);
                           }}
                         >
-                          <ChevronDown size={13} />
+                          {collapsedSections.includes(name) ? <ChevronRight size={13}/> : <ChevronDown size={13}/>}
                           {name}
                           <small>{items.length}</small>
-                        </div>
+                        </button>
                       )}
-                      {items.map(row)}
+                      {!collapsedSections.includes(name) && items.map(row)}
                     </section>
                   ))}
                 </div>
@@ -2121,7 +2139,7 @@ function Workspace() {
                 settings={settings}
                 close={() => setDetail(null)}
                 busy={busy}
-                onWatch={()=>setModal({kind:"events",item:detail})}
+                drafts={drafts}
                 save={(args: D, expectedRevision?: string) =>
                   run(() =>
                     change(
@@ -2182,7 +2200,7 @@ function Workspace() {
       {modal && (
         <Modal
           title={
-            modal.kind === "smart" ? (modal.item ? "Edit Smart List" : "New Smart List") : modal.kind === "events" ? "Activity" : modal.kind === "commands"
+            modal.kind === "smart" ? (modal.item ? "Edit Smart List" : "New Smart List") : modal.kind === "commands"
               ? "Commands"
               : modal.kind === "appearance"
                 ? "List appearance"
@@ -2200,7 +2218,6 @@ function Workspace() {
         >
           {error && <div className="error-banner" role="alert"><AlertCircle size={16} /><span>{error}</span></div>}
           {modal.kind === "smart" && <SmartListEditor item={modal.item} lists={lists} symbols={symbols} busy={busy} save={(args:D)=>run(async()=>{await change(modal.item?"manage_smart_list_edit":"manage_smart_list_create",args);setModal(null);setToast("Smart list saved");})}/>}
-          {modal.kind === "events" && <EventActivity listId={query.listId} item={modal.item} onWatch={(intent:string)=>setModal({kind:"conversation",items:modal.item?[modal.item]:[],intent})}/>}
           {modal.kind === "commands" && (
             <CommandPalette actions={paletteActions} />
           )}
@@ -2775,14 +2792,22 @@ function Inspector({
   restore,
   reload,
   openSubtask,
-  onWatch,
+  drafts,
   busy,
 }: any) {
-  const [draft, setDraft] = useState<D>({}),
+  const [draft, updateDraft] = useState<D>(() => drafts.current.get(item.id)?.fields || {}),
     [more, setMore] = useState(false),
     [subtask, setSubtask] = useState("");
   const pendingDraft = useRef<D | null>(null);
-  const draftRevision = useRef(item.revision);
+  const draftRevision = useRef(drafts.current.get(item.id)?.revision || item.revision);
+  const setDraft = (next: D | ((old: D) => D)) => {
+    updateDraft(old => {
+      const fields = typeof next === "function" ? next(old) : next;
+      if (Object.keys(fields).length) drafts.current.set(item.id, {fields, revision: draftRevision.current});
+      else drafts.current.delete(item.id);
+      return fields;
+    });
+  };
   const value = (key: string, original: any = "") => draft[key] ?? original;
   const location =
     item.alarms?.find((a: D) => a.type === "location")?.location || {};
@@ -2801,6 +2826,65 @@ function Inspector({
     if (pendingDraft.current) {setDraft(pendingDraft.current);pendingDraft.current=null;draftRevision.current=item.revision;}
     else if (!Object.keys(draft).length) draftRevision.current=item.revision;
   }, [item.revision]);
+  const saveDraft = async () => {
+    if (busy || !Object.keys(draft).length) return;
+                    const args = { ...draft };
+                    if (
+                      ("radius" in args || "proximity" in args) &&
+                      !args.location_address
+                    ) {
+                      if (location.address)
+                        args.location_address = location.address;
+                      else if (
+                        location.latitude != null &&
+                        location.longitude != null
+                      ) {
+                        args.latitude = location.latitude;
+                        args.longitude = location.longitude;
+                      }
+                    }
+                    if (
+                      settings.advancedFeatures &&
+                      Object.keys(args).some((k) =>
+                        [
+                          "tags",
+                          "section_id",
+                          "assign",
+                          "early_reminder",
+                          "urgent",
+                          "subtasks",
+                          "set_tags",
+                          "location_address",
+                          "proximity",
+                          "radius",
+                          "latitude",
+                          "longitude",
+                        ].includes(k),
+                      )
+                    )
+                      args.private = true;
+                    if (args.recurrence === "") args.recurrence = "clear";
+                    if (args.early_reminder === "")
+                      args.early_reminder = "clear";
+                    if (args.alarm === "") args.alarm = "clear";
+                    if (args.due === "") {
+                      args.due = "clear";
+                    }
+                    if (args.assign === "") {
+                      delete args.assign;
+                      args.unassign = true;
+                    }
+                    if ("tags" in args) {
+                      args.set_tags = args.tags;
+                      delete args.tags;
+                    }
+                    if (args.section_id === "") {
+                      delete args.section_id;
+                      args.section = "none";
+                    }
+                    const saved=await save(args,draftRevision.current);
+                    if(saved && !["partial", "uncertain"].includes(saved.status)){setDraft({});draftRevision.current=item.revision;}
+  };
   const addSubtask = () => {
     if (!subtask.trim()) return;
     run(async () => {
@@ -2814,6 +2898,8 @@ function Inspector({
   return (
     <aside
       className="inspector"
+      aria-label="Reminder details"
+      onKeyDown={e => {if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {e.preventDefault(); e.stopPropagation(); saveDraft();}}}
       onDragOver={(e) => {
         if (e.dataTransfer.types.includes("Files")) {
           e.preventDefault();
@@ -2833,11 +2919,25 @@ function Inspector({
       }}
     >
       <div className="inspector-toolbar">
-        <span>Details</span>
+        <span>Details{Object.keys(draft).length > 0 && <small className="draft-label" title="Kept while this workspace stays open"> · Edited</small>}</span>
         <IconButton label="Close details" onClick={close}>
           <X size={17} />
         </IconButton>
       </div>
+            {Object.keys(draft).length > 0 && (
+              <div className="save-bar inspector-save">
+                <button onClick={() => {setDraft({});draftRevision.current=item.revision;}}>Cancel</button>
+                {draftRevision.current!==item.revision&&<span className="inline-error">Changed elsewhere. Your draft is preserved.</span>}
+                <button
+                  className="primary"
+                  disabled={busy}
+                  onClick={saveDraft}
+                >
+                  Save changes
+                </button>
+              </div>
+            )}
+
       <div className="inspector-scroll">
         <div className="inspector-title">
           <button
@@ -2870,6 +2970,7 @@ function Inspector({
               rows={3}
             />
             {item.url && <button className="saved-link" onClick={()=>safeLink(item.url)}><Link2 size={14}/><span>{item.url}</span><ArrowUpRight size={12}/></button>}
+            {!!item.attachments?.length && <details className="inspector-attachments" open><summary>Attachments <span>{item.attachments.length}</span></summary><AttachmentGallery item={item} run={run}/></details>}
             <div className="inspector-group">
               <label>
                 <List size={16} />
@@ -2892,21 +2993,7 @@ function Inspector({
                     ))}
                 </select>
               </label>
-              <label>
-                <CalendarDays size={16} />
-                <span>Due</span>
-                <input
-                  aria-label="Due date"
-                  placeholder="Add date or time"
-                  value={value(
-                    "due",
-                    item.dueDate
-                      ?.replace("T", " ")
-                      .slice(0, item.allDay ? 10 : 16),
-                  )}
-                  onChange={(e) => set("due", e.target.value)}
-                />
-              </label>
+              <DueEditor value={value("due", item.dueDate?.replace("T", " ").slice(0, item.allDay ? 10 : 16) || "")} change={v => set("due", v)}/>
               <label>
                 <Flag size={16} />
                 <span>Flagged</span>
@@ -3093,76 +3180,6 @@ function Inspector({
                 </button>
               </div>
             )}
-            {Object.keys(draft).length > 0 && (
-              <div className="save-bar">
-                <button onClick={() => {setDraft({});draftRevision.current=item.revision;}}>Cancel</button>
-                {draftRevision.current!==item.revision&&<span className="inline-error">Changed elsewhere. Your draft is preserved.</span>}
-                <button
-                  className="primary"
-                  disabled={busy}
-                  onClick={async () => {
-                    const args = { ...draft };
-                    if (
-                      ("radius" in args || "proximity" in args) &&
-                      !args.location_address
-                    ) {
-                      if (location.address)
-                        args.location_address = location.address;
-                      else if (
-                        location.latitude != null &&
-                        location.longitude != null
-                      ) {
-                        args.latitude = location.latitude;
-                        args.longitude = location.longitude;
-                      }
-                    }
-                    if (
-                      settings.advancedFeatures &&
-                      Object.keys(args).some((k) =>
-                        [
-                          "tags",
-                          "section_id",
-                          "assign",
-                          "early_reminder",
-                          "urgent",
-                          "subtasks",
-                          "set_tags",
-                          "location_address",
-                          "proximity",
-                          "radius",
-                          "latitude",
-                          "longitude",
-                        ].includes(k),
-                      )
-                    )
-                      args.private = true;
-                    if (args.recurrence === "") args.recurrence = "clear";
-                    if (args.early_reminder === "")
-                      args.early_reminder = "clear";
-                    if (args.alarm === "") args.alarm = "clear";
-                    if (args.due === "") {
-                      args.due = "clear";
-                    }
-                    if (args.assign === "") {
-                      delete args.assign;
-                      args.unassign = true;
-                    }
-                    if ("tags" in args) {
-                      args.set_tags = args.tags;
-                      delete args.tags;
-                    }
-                    if (args.section_id === "") {
-                      delete args.section_id;
-                      args.section = "none";
-                    }
-                    const saved=await save(args,draftRevision.current);
-                    if(saved){setDraft({});draftRevision.current=item.revision;}
-                  }}
-                >
-                  Save changes
-                </button>
-              </div>
-            )}
             <div className="subtasks">
               <div className="section-heading">
                 Subtasks<small>{item.subtasks?.length || 0}</small>
@@ -3217,6 +3234,7 @@ function Inspector({
               </form>
             </div>
             <label className="attachment-picker">
+              <span>Add images</span>
               <Paperclip size={14} />
               <input
                 aria-label="Add images"
@@ -3235,7 +3253,6 @@ function Inspector({
                 }}
               />
             </label>
-            <AttachmentGallery item={item} run={run}/>
             <button
               className="text-action"
               disabled={!settings.advancedFeatures}
@@ -3290,7 +3307,6 @@ function Inspector({
               <SlidersHorizontal size={14} />
               Choose details…
             </button>
-            <button className="text-action" onClick={onWatch}><Bell size={14}/>Watch this reminder</button>
             <div className="inspector-bottom">
               <button onClick={onAttach}>
                 <Paperclip size={15} />
@@ -3323,6 +3339,7 @@ function Inspector({
           </>
         )}
       </div>
+
     </aside>
   );
 }

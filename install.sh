@@ -1,19 +1,30 @@
 #!/bin/bash
-# RemCTL installer. Builds and publishes one signed capability-host generation.
+# Install the notarized release, or build a complete free local generation.
 
 set -euo pipefail
 
+ORIGINAL_ARGS=("$@")
 BOOTSTRAP=0
 RUN_DOCTOR=0
 DRY_RUN=0
 ADOPT_EXISTING=0
 COMPLETION_SHELL="auto"
+PREBUILT_APP=""
+FROM_SOURCE=0
+ALLOW_LOCAL_BUILD=0
+MIGRATE_SIGNING=0
+BUILD_OUTPUT=""
 
 usage() {
     cat <<'EOF'
 Usage: ./install.sh [options]
 
 Options:
+  --from-source               Build for free with a persistent local certificate
+  --prebuilt APP              Install an already-built Capability Host app
+  --allow-local-build         Accept an explicitly selected local development build
+  --migrate-signing           Allow an identity change; permissions may need onboarding
+  --build-output DIRECTORY   Choose the new source-build output directory
   --bootstrap                 Create first-run config after installation
   --doctor                    Run `remctl doctor` after an authorized upgrade/reinstall
   --dry-run                   Build and verify without publishing or starting the service
@@ -28,11 +39,12 @@ Environment:
   REMCTL_LAUNCH_AGENT_DIR     LaunchAgent directory (default: HOME/Library/LaunchAgents)
   REMCTL_CAPABILITY_PYTHON    Protected Python 3.13+ used by the signed host
   REMCTL_CODESIGN_IDENTITY    Stable signing identity (explicit selection wins)
+  REMCTL_SIGNING_DIRECTORY    Persistent free-build key (default: Library/Application Support/RemCTL Signing)
 
-The installer preserves the existing rctl and reminders aliases. It builds and
-strictly verifies the complete signed app before stopping the previous service.
-The command-line client supports Python 3.10+; the signed host requires the
-protected Python 3.13+ runtime described above.
+The default downloads the notarized release. --from-source needs Xcode Command
+Line Tools but no Apple account or paid membership. Both include Python and ask
+for an administrator password to install its protected copy under /Library/RemCTL.
+The installer verifies the complete app before replacing the previous generation.
 
 Use --adopt-existing-install only after a normal upgrade refuses an exact 1.7.1
 or reviewed prerelease-host install and you have inspected every existing RemCTL
@@ -43,6 +55,11 @@ EOF
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
+        --from-source) FROM_SOURCE=1; shift ;;
+        --prebuilt) [[ $# -ge 2 ]] || { echo "Missing app path" >&2; exit 2; }; PREBUILT_APP="$2"; shift 2 ;;
+        --allow-local-build) ALLOW_LOCAL_BUILD=1; shift ;;
+        --migrate-signing) MIGRATE_SIGNING=1; shift ;;
+        --build-output) [[ $# -ge 2 ]] || exit 2; BUILD_OUTPUT="$2"; shift 2 ;;
         --bootstrap) BOOTSTRAP=1; shift ;;
         --doctor) RUN_DOCTOR=1; shift ;;
         --dry-run) DRY_RUN=1; shift ;;
@@ -88,6 +105,46 @@ fail() { echo -e "${RED}ERROR:${RESET} $*" >&2; exit 1; }
 NATIVE_ARCH="$(uname -m 2>/dev/null || true)"
 case "$NATIVE_ARCH" in arm64|x86_64) ;; *) fail "Unsupported architecture: ${NATIVE_ARCH:-unknown}" ;; esac
 MACOS_TARGET="$NATIVE_ARCH-apple-macosx14.0"
+if [[ "$FROM_SOURCE" == "1" && -n "$PREBUILT_APP" ]]; then fail "Choose --from-source or --prebuilt, not both."; fi
+if [[ "$FROM_SOURCE" == "1" ]]; then
+    command -v python3 >/dev/null || fail "Install Xcode Command Line Tools with xcode-select --install, then retry."
+    BUILD_OUTPUT="${BUILD_OUTPUT:-$SCRIPT_DIR/.build/source-$(date +%Y%m%d-%H%M%S)-$$}"
+    build_args=(--output "$BUILD_OUTPUT")
+    if [[ -n "${REMCTL_CODESIGN_IDENTITY:-}" ]]; then build_args+=(--identity "$REMCTL_CODESIGN_IDENTITY"); fi
+    if [[ -z "${REMCTL_CODESIGN_IDENTITY:-}" && -f "$IDENTITY_MARKER" && "$MIGRATE_SIGNING" != "1" ]]; then
+        build_args+=(--preserve-identity "$(cat "$IDENTITY_MARKER")")
+    fi
+    if [[ -n "${REMCTL_SIGNING_DIRECTORY:-}" ]]; then build_args+=(--signing-directory "$REMCTL_SIGNING_DIRECTORY"); fi
+    python3 "$SCRIPT_DIR/scripts/build_distribution.py" "${build_args[@]}"
+    PREBUILT_APP="$BUILD_OUTPUT/$APP_NAME"
+    ALLOW_LOCAL_BUILD=1
+fi
+if [[ -z "$PREBUILT_APP" && "$SKIP_LAUNCHSERVICES" != "1" && -z "${REMCTL_CAPABILITY_PYTHON:-}" ]]; then
+    exec "$SCRIPT_DIR/scripts/download_release.sh" "${ORIGINAL_ARGS[@]}"
+fi
+if [[ -n "$PREBUILT_APP" ]]; then
+    PREBUILT_APP="$(cd "$PREBUILT_APP" && pwd -P)"
+    [[ "$(basename "$PREBUILT_APP")" == "$APP_NAME" ]] || fail "Unexpected app name."
+    /usr/bin/codesign --verify --deep --strict -R '=identifier "net.macstories.remctl.capability-host"' "$PREBUILT_APP" || fail "Invalid app signature."
+    if [[ "$ALLOW_LOCAL_BUILD" != "1" ]]; then
+        /usr/bin/codesign --verify --strict -R '=identifier "net.macstories.remctl.capability-host" and anchor apple generic and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = "4W35M4UN6R"' "$PREBUILT_APP" || fail "The download is not signed with RemCTL's Developer ID."
+        /usr/sbin/spctl --assess --type execute "$PREBUILT_APP" || fail "macOS did not accept this distribution. Use a notarized RemCTL release."
+    else
+        signature="$(/usr/bin/codesign -dvvv "$PREBUILT_APP" 2>&1)"
+        [[ "$signature" == *"Authority="* && "$signature" != *"Signature=adhoc"* ]] || fail "A local build needs a certificate signature to preserve permission identity."
+    fi
+    distribution="$PREBUILT_APP/Contents/Resources/distribution.json"
+    [[ "$(/usr/bin/plutil -extract format raw "$distribution")" == "1" ]] || fail "Unsupported distribution format."
+    [[ "$(/usr/bin/plutil -extract architecture raw "$distribution")" == "$NATIVE_ARCH" ]] || fail "Release architecture mismatch."
+    CAPABILITY_PYTHON="$(cat "$PREBUILT_APP/Contents/Resources/remctl-capability-python-path")"
+    [[ "$CAPABILITY_PYTHON" =~ ^/Library/RemCTL/Python/[0-9a-f]{64}/bin/python3\.13$ ]] || fail "Unexpected protected Python path."
+    if [[ "$DRY_RUN" == "1" || "$SKIP_LAUNCHSERVICES" == "1" ]]; then
+        CAPABILITY_PYTHON="$PREBUILT_APP/Contents/Resources/Python/bin/python3.13"
+    else
+        /usr/bin/sudo "$PREBUILT_APP/Contents/MacOS/RemCTL Capability Host" --install-python-runtime
+    fi
+    REMCTL_CAPABILITY_PYTHON="$CAPABILITY_PYTHON"
+else
 for tool in swiftc clang codesign plutil security; do
     command -v "$tool" >/dev/null 2>&1 || fail "$tool is required. Install Xcode Command Line Tools."
 done
@@ -102,6 +159,7 @@ REQUIRED_SOURCES=(
 for source_name in "${REQUIRED_SOURCES[@]}"; do
     [[ -f "$SCRIPT_DIR/$source_name" && ! -L "$SCRIPT_DIR/$source_name" ]] || fail "Missing required source: $source_name"
 done
+fi
 
 # Test mode is isolated by both a non-home prefix and disabled LaunchServices.
 CAPABILITY_SIMULATION=0
@@ -147,11 +205,13 @@ if [[ -z "$CAPABILITY_PYTHON" ]]; then
 fi
 if [[ "$CAPABILITY_SIMULATION" == "1" && -z "$CAPABILITY_PYTHON" ]]; then CAPABILITY_PYTHON="$(command -v python3 || true)"; fi
 [[ -n "$CAPABILITY_PYTHON" ]] || fail "A protected Python 3.13+ is required. Set REMCTL_CAPABILITY_PYTHON."
-CAPABILITY_PYTHON="$("$CAPABILITY_PYTHON" -I -S -c 'import os,sys; print(os.path.realpath(sys.executable))' 2>/dev/null || true)"
+CAPABILITY_PYTHON="$("$CAPABILITY_PYTHON" -B -I -S -c 'import os,sys; print(os.path.realpath(sys.executable))' 2>/dev/null || true)"
 [[ -n "$CAPABILITY_PYTHON" ]] || fail "REMCTL_CAPABILITY_PYTHON is not executable."
 
+unset REMCTL_PREBUILT_DRY_RUN
+if [[ -n "$PREBUILT_APP" && "$DRY_RUN" == "1" ]]; then export REMCTL_PREBUILT_DRY_RUN=1; fi
 # Validate the interpreter before creating any destination directories.
-if ! "$CAPABILITY_PYTHON" -I -S - "$CAPABILITY_PYTHON" "$CAPABILITY_SIMULATION" <<'PY'
+if ! "$CAPABILITY_PYTHON" -B -I -S - "$CAPABILITY_PYTHON" "$CAPABILITY_SIMULATION" <<'PY'
 import grp, os, pwd, shlex, stat, subprocess, sys
 candidate, simulation = sys.argv[1:]
 candidate = os.path.realpath(candidate)
@@ -213,7 +273,7 @@ valid = (sys.version_info >= (3,13) and os.path.isabs(candidate)
     and os.access(candidate, os.X_OK))
 if not valid:
     reject_path(candidate, "requires the canonical executable of a Python 3.13+ runtime", metadata)
-if simulation != "1":
+if simulation != "1" and os.environ.get("REMCTL_PREBUILT_DRY_RUN") != "1":
     valid = valid and protected(candidate)
     valid = valid and all(import_root_protected(entry) for entry in sys.path if entry)
 raise SystemExit(0 if valid else 1)
@@ -224,7 +284,9 @@ fi
 
 # Read the public protocol constant as syntax, without importing or executing
 # any runtime module during installation.
-if ! POLICY_PROTOCOL_VERSION="$("$CAPABILITY_PYTHON" -I -S - "$SCRIPT_DIR/remctl_capability_policy.py" <<'PY'
+POLICY_SOURCE="$SCRIPT_DIR/remctl_capability_policy.py"
+[[ -z "$PREBUILT_APP" ]] || POLICY_SOURCE="$PREBUILT_APP/Contents/Resources/Client/remctl_capability_policy.py"
+if ! POLICY_PROTOCOL_VERSION="$("$CAPABILITY_PYTHON" -B -I -S - "$POLICY_SOURCE" <<'PY'
 import ast, pathlib, sys
 tree = ast.parse(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
 values = []
@@ -251,7 +313,9 @@ fi
 
 # Select a stable identity in explicit, preserved, auto-detected order.
 SIGNING_SOURCE=""; SIGNING_IDENTITY="${REMCTL_CODESIGN_IDENTITY:-}"
-if [[ -n "$SIGNING_IDENTITY" ]]; then
+if [[ -n "$PREBUILT_APP" ]]; then
+    SIGNING_SOURCE="verified prebuilt app"; SIGNING_IDENTITY="prebuilt"
+elif [[ -n "$SIGNING_IDENTITY" ]]; then
     SIGNING_SOURCE="REMCTL_CODESIGN_IDENTITY"
 elif [[ -f "$IDENTITY_MARKER" && ! -L "$IDENTITY_MARKER" ]]; then
     SIGNING_IDENTITY="$(sed -n '1p' "$IDENTITY_MARKER")"
@@ -296,7 +360,7 @@ TRANSACTION_ACTIVE=0; OLD_SERVICE_LOADED=0; SERVICE_QUIESCED=0; RECOVERY_FAILED=
 job_loaded() { launchctl print "gui/$(id -u)/$AGENT_LABEL" >/dev/null 2>&1; }
 transport_available() {
     REMCTL_CAPABILITY_HOST_APP="$APP_PATH" REMCTL_CAPABILITY_HOST_SOCKET="$SOCKET_PATH" \
-        "$CAPABILITY_PYTHON" -I -S -c 'import sys; sys.path.insert(0,sys.argv[1]); import remctl_broker; remctl_broker.ping(timeout=10)' "$BIN_DIR" >/dev/null 2>&1
+        "$CAPABILITY_PYTHON" -B -I -S -c 'import sys; sys.path.insert(0,sys.argv[1]); import remctl_broker; remctl_broker.ping(timeout=10)' "$BIN_DIR" >/dev/null 2>&1
 }
 wait_for_transport() {
     # Wait for the server to publish its socket before sending one bounded ping.
@@ -328,7 +392,7 @@ bootstrap_job() {
 }
 socket_owned() {
     [[ ! -e "$SOCKET_PATH" && ! -L "$SOCKET_PATH" ]] && return 0
-    "$CAPABILITY_PYTHON" -I -S - "$SOCKET_PATH" <<'PY'
+    "$CAPABILITY_PYTHON" -B -I -S - "$SOCKET_PATH" <<'PY'
 import os, stat, sys
 path=sys.argv[1]; parent=os.path.dirname(path)
 metadata=os.lstat(path); parent_metadata=os.lstat(parent)
@@ -341,7 +405,7 @@ PY
 }
 safe_remove_socket() {
     [[ ! -e "$SOCKET_PATH" && ! -L "$SOCKET_PATH" ]] && return 0
-    "$CAPABILITY_PYTHON" -I -S - "$SOCKET_PATH" <<'PY'
+    "$CAPABILITY_PYTHON" -B -I -S - "$SOCKET_PATH" <<'PY'
 import errno, os, socket, stat, sys
 path=sys.argv[1]
 parent=os.path.dirname(path)
@@ -377,7 +441,7 @@ PY
 rollback_publish() {
     [[ "$TRANSACTION_ACTIVE" == "1" ]] || return 0
     if [[ ! -f "$JOURNAL" ]]; then TRANSACTION_ACTIVE=0; return 0; fi
-    if ! "$CAPABILITY_PYTHON" -I -S - "$JOURNAL" "${REMCTL_TEST_ROLLBACK_FAIL_AT:-0}" "$CAPABILITY_SIMULATION" <<'PY'
+    if ! "$CAPABILITY_PYTHON" -B -I -S - "$JOURNAL" "${REMCTL_TEST_ROLLBACK_FAIL_AT:-0}" "$CAPABILITY_SIMULATION" <<'PY'
 import json, os, shutil, sys
 path,fail_at_text,simulation=sys.argv[1:]
 if fail_at_text != "0" and simulation != "1": raise SystemExit("rollback fault injection is restricted to temp-prefix simulation")
@@ -455,6 +519,14 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
+if [[ -n "$PREBUILT_APP" ]]; then
+    STAGED_APP="$APP_STAGE/$APP_NAME"
+    /usr/bin/ditto "$PREBUILT_APP" "$STAGED_APP"
+    STAGED_RESOURCES="$STAGED_APP/Contents/Resources"
+    for item in remctl-bridge remctl-private remctl-permissions remctl-list-artwork remctl-list-symbols.json; do
+        cp "$STAGED_RESOURCES/Client/$item" "$BIN_STAGE/$item"
+    done
+else
 echo -e "${BLUE}→${RESET} Compiling native helpers..."
 swiftc -target "$MACOS_TARGET" -O -framework EventKit -framework Foundation -o "$BIN_STAGE/remctl-bridge" "$SCRIPT_DIR/remctl-bridge.swift"
 swiftc -target "$MACOS_TARGET" -O -framework AppKit -framework Foundation -o "$BIN_STAGE/remctl-permissions" "$SCRIPT_DIR/remctl-permissions.swift"
@@ -465,7 +537,7 @@ chmod 755 "$BIN_STAGE/remctl-bridge" "$BIN_STAGE/remctl-permissions" "$BIN_STAGE
 echo -e "${BLUE}→${RESET} Building sealed Python archive..."
 ARCHIVE="$BUILD_STAGE/remctl-capability.pyz"
 ARCHIVE_MANIFEST="$BUILD_STAGE/remctl-capability-archive-manifest.json"
-"$CAPABILITY_PYTHON" -I -S "$SCRIPT_DIR/scripts/build_capability_archive.py" \
+"$CAPABILITY_PYTHON" -B -I -S "$SCRIPT_DIR/scripts/build_capability_archive.py" \
     --source-root "$SCRIPT_DIR" --output "$ARCHIVE" --manifest-output "$ARCHIVE_MANIFEST"
 [[ -s "$ARCHIVE" ]] || fail "Archive builder did not produce an archive."
 [[ -s "$ARCHIVE_MANIFEST" ]] || fail "Archive builder did not produce its manifest."
@@ -486,7 +558,7 @@ chmod 644 \
     "$STAGED_RESOURCES/remctl-capability-python-path" \
     "$STAGED_RESOURCES/remctl-capability-host-socket-path" \
     "$STAGED_RESOURCES/remctl-capability-host-launch-agent-path"
-"$CAPABILITY_PYTHON" -I -S - "$STAGED_RESOURCES/remctl-capability-runtime.json" "$CAPABILITY_PYTHON" "$SOCKET_PATH" "$AGENT_PATH" "$POLICY_PROTOCOL_VERSION" <<'PY'
+"$CAPABILITY_PYTHON" -B -I -S - "$STAGED_RESOURCES/remctl-capability-runtime.json" "$CAPABILITY_PYTHON" "$SOCKET_PATH" "$AGENT_PATH" "$POLICY_PROTOCOL_VERSION" <<'PY'
 import json, os, sys
 path, python, socket, launch_agent, protocol_version = sys.argv[1:]
 payload={"bundleIdentifier":"net.macstories.remctl.capability-host","protocolVersion":int(protocol_version),
@@ -505,17 +577,24 @@ chmod 755 "$STAGED_HOST"
 codesign --force --deep --sign "$SIGNING_IDENTITY" "$STAGED_APP" >/dev/null
 codesign --verify --deep --strict --verbose=2 "$STAGED_APP"
 plutil -lint "$STAGED_APP/Contents/Info.plist" >/dev/null
+fi
 
 # Stage the public generation.
 for item in remctl remctl_runtime.py remctl_images.py remctl_serialization.py remctl_smart_lists.py \
     remctl_broker.py remctl_capability_policy.py remctl_capabilities.py remctl_mcp.py remctl_events.py remctl_workspace.py remctl_plugin.py remctl_mcp_widget.html remctl_workspace.html
-do cp "$SCRIPT_DIR/$item" "$BIN_STAGE/$item"; done
-chmod 755 "$BIN_STAGE/remctl"; chmod 644 "$BIN_STAGE"/*.py "$BIN_STAGE/remctl_mcp_widget.html"
-for icon in remctl-mcp-icon.png remctl-mcp-icon-512.png; do
-    if [[ -f "$SCRIPT_DIR/assets/$icon" ]]; then cp "$SCRIPT_DIR/assets/$icon" "$BIN_STAGE/$icon"; chmod 644 "$BIN_STAGE/$icon"; fi
+do
+    source_root="$SCRIPT_DIR"
+    [[ -z "$PREBUILT_APP" ]] || source_root="$STAGED_RESOURCES/Client"
+    cp "$source_root/$item" "$BIN_STAGE/$item"
 done
-if [[ -f "$SCRIPT_DIR/assets/remctl-permissions-icon.png" ]]; then
-    cp "$SCRIPT_DIR/assets/remctl-permissions-icon.png" "$BIN_STAGE/remctl-permissions-icon.png"; chmod 644 "$BIN_STAGE/remctl-permissions-icon.png"
+chmod 755 "$BIN_STAGE/remctl"; chmod 644 "$BIN_STAGE"/*.py "$BIN_STAGE/remctl_mcp_widget.html"
+ASSET_SOURCE="$SCRIPT_DIR/assets"
+[[ -z "$PREBUILT_APP" ]] || ASSET_SOURCE="$STAGED_RESOURCES/Client"
+for icon in remctl-mcp-icon.png remctl-mcp-icon-512.png; do
+    if [[ -f "$ASSET_SOURCE/$icon" ]]; then cp "$ASSET_SOURCE/$icon" "$BIN_STAGE/$icon"; chmod 644 "$BIN_STAGE/$icon"; fi
+done
+if [[ -f "$ASSET_SOURCE/remctl-permissions-icon.png" ]]; then
+    cp "$ASSET_SOURCE/remctl-permissions-icon.png" "$BIN_STAGE/remctl-permissions-icon.png"; chmod 644 "$BIN_STAGE/remctl-permissions-icon.png"
 fi
 printf '%s\n' "$APP_PATH" > "$BIN_STAGE/.remctl-capability-host-app"
 chmod 600 "$BIN_STAGE/.remctl-capability-host-app"
@@ -539,7 +618,7 @@ ln -s remctl "$BIN_STAGE/rctl"; ln -s remctl "$BIN_STAGE/reminders"
 
 # Record exact ownership of every public artifact. A filename by itself is never
 # evidence that RemCTL owns the object currently at that path.
-"$CAPABILITY_PYTHON" -I -S - "$BIN_STAGE" "$BIN_STAGE/.remctl-install-manifest.json" <<'PY'
+"$CAPABILITY_PYTHON" -B -I -S - "$BIN_STAGE" "$BIN_STAGE/.remctl-install-manifest.json" <<'PY'
 import hashlib, json, os, stat, sys
 root, output = sys.argv[1:]
 entries = {}
@@ -564,7 +643,9 @@ os.chmod(output,0o600)
 PY
 
 STAGED_AGENT="$AGENT_STAGE/$AGENT_LABEL.plist"
-"$CAPABILITY_PYTHON" -I -S - "$SCRIPT_DIR/remctl-capability-host-launchagent.plist" "$STAGED_AGENT" "$HOST_EXECUTABLE" "$SOCKET_PATH" <<'PY'
+AGENT_TEMPLATE="$SCRIPT_DIR/remctl-capability-host-launchagent.plist"
+[[ -z "$PREBUILT_APP" ]] || AGENT_TEMPLATE="$STAGED_RESOURCES/launchagent.plist"
+"$CAPABILITY_PYTHON" -B -I -S - "$AGENT_TEMPLATE" "$STAGED_AGENT" "$HOST_EXECUTABLE" "$SOCKET_PATH" <<'PY'
 import pathlib, sys
 source,destination,host,socket=sys.argv[1:]
 value=pathlib.Path(source).read_text(encoding="utf-8")
@@ -578,7 +659,7 @@ plutil -lint "$STAGED_AGENT" >/dev/null
 installed_agent_owned() {
     local path="${1:-$AGENT_PATH}"
     [[ -f "$path" && ! -L "$path" ]] || return 1
-    "$CAPABILITY_PYTHON" -I -S - "$path" "$AGENT_LABEL" "$HOST_EXECUTABLE" "$SOCKET_PATH" <<'PY'
+    "$CAPABILITY_PYTHON" -B -I -S - "$path" "$AGENT_LABEL" "$HOST_EXECUTABLE" "$SOCKET_PATH" <<'PY'
 import plistlib, sys
 path,label,host,socket=sys.argv[1:]
 try:
@@ -605,7 +686,7 @@ installed_app_owned() {
 }
 
 installed_bin_owned() {
-    "$CAPABILITY_PYTHON" -I -S - "$BIN_DIR" "$OWNERSHIP_MANIFEST" "$ADOPT_EXISTING" "${1:-0}" <<'PY'
+    "$CAPABILITY_PYTHON" -B -I -S - "$BIN_DIR" "$OWNERSHIP_MANIFEST" "$ADOPT_EXISTING" "${1:-0}" <<'PY'
 import hashlib, json, os, stat, sys
 root, manifest, adopt, app_contract = sys.argv[1:]
 managed={
@@ -690,16 +771,20 @@ if [[ "$CAPABILITY_SIMULATION" != "1" ]]; then
     new_signature="$(/usr/bin/codesign -d --verbose=4 -r- "$STAGED_APP" 2>&1)" || fail "Could not inspect the staged host signature."
     new_team="$(printf '%s\n' "$new_signature" | sed -n 's/^TeamIdentifier=//p')"
     new_requirement="$(printf '%s\n' "$new_signature" | sed -n 's/^designated => //p')"
-    [[ -n "$new_team" && "$new_team" != "not set" && -n "$new_requirement" ]] || \
-        fail "The live capability host requires a stable TeamIdentifier and designated requirement."
+    [[ -n "$new_requirement" && -n "${LEAF_CERTIFICATE_SHA1:-}" ]] || \
+        fail "The live capability host requires a certificate and stable designated requirement."
+    if [[ -z "$new_team" || "$new_team" == "not set" ]]; then
+        expected_local_requirement="identifier \"$AGENT_LABEL\" and certificate leaf = H\"$(printf '%s' "$LEAF_CERTIFICATE_SHA1" | tr '[:upper:]' '[:lower:]')\""
+        [[ "$new_requirement" == "$expected_local_requirement" ]] || fail "A local build must pin its exact certificate in the designated requirement."
+    fi
     if [[ -e "$APP_PATH" || -L "$APP_PATH" ]]; then
         old_signature="$(/usr/bin/codesign -d --verbose=4 -r- "$APP_PATH" 2>&1)" || fail "Could not inspect the installed host signature."
         old_team="$(printf '%s\n' "$old_signature" | sed -n 's/^TeamIdentifier=//p')"
         old_requirement="$(printf '%s\n' "$old_signature" | sed -n 's/^designated => //p')"
-        [[ -n "$old_team" && "$old_team" != "not set" ]] || \
-            fail "A live capability-host upgrade requires stable signed TeamIdentifiers."
-        [[ "$old_team" == "$new_team" && -n "$old_requirement" && "$old_requirement" == "$new_requirement" ]] || \
-            fail "The staged signature would change the capability host's TCC identity. Use the preserved signing identity."
+        if [[ "$old_team" != "$new_team" || -z "$old_requirement" || "$old_requirement" != "$new_requirement" ]]; then
+            [[ "$MIGRATE_SIGNING" == "1" ]] || fail "The signing identity changed. Restore the original certificate, or explicitly use --migrate-signing and repeat permission onboarding."
+            echo "Signing identity migration: macOS permissions may need to be granted again." >&2
+        fi
     fi
 fi
 
@@ -766,7 +851,7 @@ if [[ -f "$BIN_STAGE/.remctl-capability-host-signing-identity" ]]; then add_pair
 for alias_name in remctl rctl reminders; do add_pair "$BIN_STAGE/completions/_$alias_name" "$BIN_DIR/completions/_$alias_name"; done
 
 TRANSACTION_ACTIVE=1
-"$CAPABILITY_PYTHON" -I -S - "$PAIRS" "$JOURNAL" "${REMCTL_TEST_PUBLISH_FAIL_AT:-0}" "$CAPABILITY_SIMULATION" <<'PY'
+"$CAPABILITY_PYTHON" -B -I -S - "$PAIRS" "$JOURNAL" "${REMCTL_TEST_PUBLISH_FAIL_AT:-0}" "$CAPABILITY_SIMULATION" <<'PY'
 import json, os, shutil, sys
 pairs_path,journal_path,fail_at_text,simulation=sys.argv[1:]
 if fail_at_text != "0" and simulation != "1": raise SystemExit("publish fault injection is restricted to temp-prefix simulation")
@@ -803,7 +888,7 @@ fi
 # file. From this point the new service is authoritative; backup cleanup is
 # best-effort so a cleanup error cannot trigger a partial rollback.
 TRANSACTION_ACTIVE=0
-if ! "$CAPABILITY_PYTHON" -I -S - "$JOURNAL" <<'PY'
+if ! "$CAPABILITY_PYTHON" -B -I -S - "$JOURNAL" <<'PY'
 import json, os, shutil, sys
 for line in open(sys.argv[1],encoding="utf-8"):
     backup=json.loads(line)["backup"]
@@ -818,7 +903,7 @@ SERVICE_QUIESCED=0
 # The HTTP process imports the client modules once. Reload an already-running
 # endpoint after publishing, or it will keep serving the previous runtime.
 if [[ "$CAPABILITY_SIMULATION" != "1" ]]; then
-    if ! "$CAPABILITY_PYTHON" -I -S - "$BIN_DIR" <<'PY'
+    if ! "$CAPABILITY_PYTHON" -B -I -S - "$BIN_DIR" <<'PY'
 import sys, time
 sys.path.insert(0, sys.argv[1])
 import remctl_mcp
@@ -845,26 +930,30 @@ fi
 if [[ "$BOOTSTRAP" == "1" || "$COMPLETION_SHELL" != "none" ]]; then
     setup_shell="$COMPLETION_SHELL"
     [[ "$setup_shell" == "none" ]] && setup_shell="skip"
-    if ! PYTHONDONTWRITEBYTECODE=1 "$BIN_DIR/remctl" setup --shell "$setup_shell"; then
+    if ! PYTHONDONTWRITEBYTECODE=1 "$CAPABILITY_PYTHON" "$BIN_DIR/remctl" setup --shell "$setup_shell"; then
         if [[ "$BOOTSTRAP" == "1" ]]; then fail "RemCTL installed, but first-run bootstrap setup failed."; fi
         echo -e "${YELLOW}First-run setup was skipped.${RESET}"
     fi
 fi
 if [[ "$COMPLETION_SHELL" != "none" ]]; then
-    PYTHONDONTWRITEBYTECODE=1 "$BIN_DIR/rctl" setup --shell "$COMPLETION_SHELL" >/dev/null 2>&1 || true
-    PYTHONDONTWRITEBYTECODE=1 "$BIN_DIR/reminders" setup --shell "$COMPLETION_SHELL" >/dev/null 2>&1 || true
+    PYTHONDONTWRITEBYTECODE=1 "$CAPABILITY_PYTHON" "$BIN_DIR/rctl" setup --shell "$COMPLETION_SHELL" >/dev/null 2>&1 || true
+    PYTHONDONTWRITEBYTECODE=1 "$CAPABILITY_PYTHON" "$BIN_DIR/reminders" setup --shell "$COMPLETION_SHELL" >/dev/null 2>&1 || true
 fi
 if [[ "$RUN_DOCTOR" == "1" ]]; then
-    PYTHONDONTWRITEBYTECODE=1 "$BIN_DIR/remctl" doctor || echo -e "${YELLOW}Doctor found setup issues. Resolve the reported checks, then rerun 'remctl doctor --for-agent'.${RESET}"
+    PYTHONDONTWRITEBYTECODE=1 "$CAPABILITY_PYTHON" "$BIN_DIR/remctl" doctor || echo -e "${YELLOW}Doctor found setup issues. Resolve the reported checks, then rerun 'remctl doctor --for-agent'.${RESET}"
 fi
 
-echo ""; echo -e "${GREEN}${BOLD}Done!${RESET} RemCTL v$(PYTHONDONTWRITEBYTECODE=1 "$BIN_DIR/remctl" --version) installed."
+echo ""; echo -e "${GREEN}${BOLD}Done!${RESET} RemCTL v$(PYTHONDONTWRITEBYTECODE=1 "$CAPABILITY_PYTHON" "$BIN_DIR/remctl" --version) installed."
 echo -e "${DIM}Capability host: $APP_PATH${RESET}"
 if [[ "$APP_CONTRACT" == "0" ]]; then
     echo -e "${DIM}First capability-host install: run '$BIN_DIR/remctl onboard'. It requests Reminders and Automation access and opens the exact-host Full Disk Access guide only if needed.${RESET}"
     echo -e "${DIM}If you change Full Disk Access, add only '$APP_PATH', restart the host with 'launchctl kickstart -k \"gui/\$(id -u)/$AGENT_LABEL\"', then run '$BIN_DIR/remctl doctor' (agents: '$BIN_DIR/remctl doctor --for-agent --json').${RESET}"
 else
-    echo -e "${DIM}Upgrade/reinstall complete. The signed host identity was preserved, so existing permission grants remain valid.${RESET}"
+    if [[ "$MIGRATE_SIGNING" == "1" ]]; then
+        echo "Installation complete. Run remctl onboard to check permissions after the signing migration."
+    else
+        echo -e "${DIM}Upgrade/reinstall complete. The signed host identity was preserved, so existing permission grants remain valid.${RESET}"
+    fi
     echo -e "${DIM}Run '$BIN_DIR/remctl doctor' (agents: '$BIN_DIR/remctl doctor --for-agent --json'). Run '$BIN_DIR/remctl onboard' only if doctor reports host permission trouble.${RESET}"
 fi
 echo -e "${DIM}Use '$BIN_DIR/remctl permissions full-disk-access' only to reopen or repair the exact-host Full Disk Access guide.${RESET}"

@@ -1765,6 +1765,13 @@ class PostSpawnClassificationTests(unittest.TestCase):
 
 
 class SignatureStatusTests(unittest.TestCase):
+    def test_local_identity_requires_exact_certificate_pin(self):
+        requirement = 'identifier "net.macstories.remctl.capability-host" and certificate leaf = H"' + 'a' * 40 + '"'
+        self.assertTrue(remctl_broker.has_stable_signing_identity({"teamID": "not set", "designatedRequirement": requirement}))
+        for altered in (requirement + ' or true', 'identifier "net.macstories.remctl.capability-host"', requirement.replace('net.macstories.remctl.capability-host', 'other.app')):
+            with self.subTest(requirement=altered):
+                self.assertFalse(remctl_broker.has_stable_signing_identity({"teamID": "not set", "designatedRequirement": altered}))
+
     def test_signature_status_has_structured_identity(self):
         verify = subprocess.CompletedProcess([], 0, b"", b"")
         describe = subprocess.CompletedProcess(

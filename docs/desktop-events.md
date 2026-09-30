@@ -1,5 +1,7 @@
 # RemCTL Events
 
+> Deferred at Federico’s request on September 30. The desktop app hides Activity and Watch entry points. The implementation and protocol test evidence below remain for future work; native ChatGPT event automations are not part of the current release scope.
+
 RemCTL implements the webhook profile of the [OpenAI MCP Events guide](https://developers.openai.com/plugins/build/mcp-events), reviewed September 30, 2026. Discovery advertises `events: {}`. `events/list`, `events/subscribe` and `events/unsubscribe` use the same authenticated principal as tools on both supported MCP protocol versions.
 
 ## Events and filters

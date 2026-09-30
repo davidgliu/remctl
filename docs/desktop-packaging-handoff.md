@@ -16,3 +16,9 @@ Use the four-circle translucent iMac G3 variant already installed for both the p
 - The current install generates native list badges on the user's Mac. Keep that local generation step in the packaging design.
 
 Prefer a notarized, bundled-runtime download for ordinary users. Keep account-free source builds as a separately verified path. This Events retry changed no installer, signing identity, certificate, live runtime or launch service.
+
+## Final UI refinement handoff — September 30
+
+Events acceptance is deferred; everyday Activity/Watch UI entry points are hidden. Import the final `ui/src/main.tsx`, `ui/src/style.css`, new `ui/src/date-editor.tsx`, and `remctl_workspace.html` from the desktop-plugin worktree. The matching UI/runtime fingerprint is `53e02600ba62dc06`; preserve distribution's launcher changes when updating `plugins/remctl/mcp.json`, then regenerate the fingerprint if distribution changes any hashed runtime files. No installer, launcher, signing, artwork, or Python source was edited during this final UI refinement pass.
+
+Acceptance and screenshots are in `desktop-plugin-validation.md`; the updated `desktop-try-it.md` contains ten practical desktop exercises. The local signed-host installation preserved its identity and passed diagnostics.

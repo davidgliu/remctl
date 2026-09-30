@@ -6,26 +6,33 @@ RemCTL reads and changes Apple Reminders from the terminal or an AI app through 
 
 A signed app, **RemCTL Capability Host**, holds the macOS permissions. Terminal, Python, and AI apps use that host and need no separate grants. Reads use the local Reminders database; writes use Apple's EventKit API or, with `--private`, its private ReminderKit framework.
 
-## Requirements
-
-- macOS 14 or later. Release 2.0 is verified on the early macOS 27 build; the command paths also have test coverage on macOS 26.
-- Python 3.10 or later for the CLI. A protected Python 3.13 or later for the signed host. Stock python.org installs may need [permission repair](docs/installation.md#protected-python-permissions).
-- Xcode Command Line Tools (`xcode-select --install`).
-- An `Apple Development` signing identity. The installer signs the host app with it.
-- iCloud Reminders enabled.
-
 ## Install
 
+You do not need an Apple developer account or paid membership. RemCTL includes its own Python runtime.
+
+**Default: notarized download.** On macOS 14 or later, download the `RemCTL-arm64.dmg` (Apple silicon) or `RemCTL-x86_64.dmg` (Intel) release, open it, and double-click **Install RemCTL.command**. The installer verifies the publisher, installs the CLI and Capability Host, and starts its background service. No Xcode or separate Python installation is needed.
+
+From a checkout, the same route is:
+
 ```bash
-git clone https://github.com/viticci/remctl.git
-cd remctl
 ./install.sh --bootstrap
 ~/bin/remctl onboard
 ```
 
-The installer builds the signed host, installs the CLI in `~/bin`, and adds a background service. `onboard` guides permission setup, checks the installation, and offers to connect AI apps and other devices through Tailscale. Run `remctl doctor` to check readiness.
+**Free source build.** Install Apple's free Command Line Tools once with `xcode-select --install`, then:
 
-See [installation](docs/installation.md) for requirements, permissions, and custom paths.
+```bash
+git clone https://github.com/viticci/remctl.git
+cd remctl
+./install.sh --from-source --bootstrap
+~/bin/remctl onboard
+```
+
+The source command builds everything and creates a persistent local signing certificate. It does not sign in to Apple or require a subscription. Keep that certificate for future updates.
+
+Both routes ask for a Mac administrator password to install protected Python under `/Library/RemCTL`. Onboarding guides the macOS permissions for **RemCTL Capability Host**. iCloud Reminders must be enabled. See [installation](docs/installation.md) for updates, custom paths and permission setup.
+
+**Development status:** these distribution paths are under local validation. No downloadable release has been published from this work; use `--from-source` until release artifacts are available.
 
 ## Use the CLI
 
@@ -130,7 +137,7 @@ git pull
 remctl doctor
 ```
 
-The installer keeps the host's signing identity, so permissions carry over. Run `remctl onboard` again only if `doctor` reports a permission problem. Upgrading from 1.7.1, which had no host, needs the one-time steps in [docs/installation.md](docs/installation.md#upgrading).
+Use `./install.sh --from-source` for source-build updates. The installer preserves the signing certificate and refuses unexpected identity changes. Switching between a local build and the public release requires `--migrate-signing` and may require granting permissions again. Run `remctl onboard` again only if `doctor` reports a permission problem. Upgrading from 1.7.1, which had no host, needs the one-time steps in [docs/installation.md](docs/installation.md#upgrading).
 
 ## Uninstall
 
@@ -138,7 +145,7 @@ The installer keeps the host's signing identity, so permissions carry over. Run 
 ./uninstall.sh
 ```
 
-The uninstaller stops the host, removes the app, the LaunchAgent, the socket, and the installed files. It does not revoke macOS permissions or edit your shell profile. Disconnect AI apps first with `remctl mcp remove`.
+The uninstaller stops the host, removes the app, the LaunchAgent, the socket, and the installed files. It retains the protected Python copies and your local signing key so other installs and later rebuilds keep working. It does not revoke macOS permissions or edit your shell profile. Disconnect AI apps first with `remctl mcp remove`.
 
 ## Documentation
 

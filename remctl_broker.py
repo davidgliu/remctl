@@ -925,6 +925,18 @@ def _empty_signature_status() -> dict[str, Any]:
     }
 
 
+def has_stable_signing_identity(signature: dict[str, Any]) -> bool:
+    """Accept Apple team identity or an exact certificate-pinned local identity."""
+    team = signature.get("teamID")
+    if isinstance(team, str) and team and team != "not set":
+        return True
+    requirement = signature.get("designatedRequirement")
+    return isinstance(requirement, str) and re.fullmatch(
+        rf'identifier "{re.escape(BUNDLE_IDENTIFIER)}" and certificate leaf = H"[0-9a-fA-F]{{40}}"',
+        requirement,
+    ) is not None
+
+
 def _signature_status(app: Path) -> dict[str, Any]:
     result = _empty_signature_status()
     try:

@@ -1,6 +1,6 @@
 # Capability Host installation and distribution
 
-Investigation: September 30, 2026. No installer, live app, signing identity, or permission changes were made for this investigation. Neither proposed installation path has been validated end to end.
+Original investigation: September 30, 2026. The sections below record the pre-implementation findings. Implementation now lives on the local `codex/remctl-distribution` branch; see [installation](installation.md) and [distribution validation](distribution-validation.md) for current behavior and evidence. End-to-end notarization and permission persistence remain release gates.
 
 Board card: https://www.notion.so/3eb35e3fe8d88134983ec3d4a2c4bc16
 

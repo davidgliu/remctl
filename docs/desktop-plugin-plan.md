@@ -37,6 +37,6 @@ Desktop testing must exercise real UI through Computer, not substitute a browser
 - [x] Attachment lightbox/downloads, tag chips, visual exclusions and relative smart filters, Groceries conversion/language, JSON/CSV export, Urgent/Overdue, statistics and links.
 - [x] Durable signed webhook Events server, Activity UI and scoped monitoring requests.
 - [x] Failed reads remain unavailable, rather than being shown as empty lists; a worker retains its matching UI across installs.
-- [ ] Native ChatGPT webhook subscription and resulting chat invocation: the tested local host exposes no Events interface or callback credentials.
+- Deferred at Federico’s request on September 30: native Events subscription and resulting chat invocation. Activity and Watch entry points are hidden until that work resumes.
 
 See [capability coverage](desktop-capabilities.md) and [Events](desktop-events.md).

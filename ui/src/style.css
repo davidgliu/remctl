@@ -540,6 +540,7 @@ h1 > span {
   padding: 0;
 }
 .task-row:hover .row-more,
+.task-row:focus-within .row-more,
 .task-row.inspected .row-more {
   opacity: 1;
 }
@@ -730,6 +731,8 @@ h1 > span {
   color: var(--muted);
 }
 .inspector-scroll {
+  flex: 1;
+  min-height: 0;
   overflow: auto;
   padding: 10px 18px 22px;
   scrollbar-width: thin;
@@ -1406,9 +1409,6 @@ h1 > span {
   .inspector {
     width: 340px;
   }
-  .task-row {
-    min-height: 67px;
-  }
 }
 @media (max-width: 1000px) {
   .sidebar {
@@ -1836,3 +1836,53 @@ button.tag:hover {
 @media(max-width:520px){.smart-editor,.event-activity,.watch-review {padding:16px;}.inspector {width:100%;}.image-lightbox{padding:60px 10px 15px;}}
 
 .relative-filter{display:grid;grid-template-columns:1.4fr 64px 1fr;gap:8px}.relative-filter input{min-width:0}.filter-lists{max-height:240px;overflow:auto;display:grid;gap:6px}.filter-lists label{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:12px}.filter-lists select{width:100px}.filter-exclusions summary{font-size:11px;color:var(--muted);cursor:pointer;margin:8px 0}
+
+/* A readable list at full width, with persistent editing controls. */
+.layout-list > * { width: 100%; max-width: 920px; margin-left: auto; margin-right: auto; }
+.collection-heading { margin-bottom: 22px; }
+.task-row { min-height: 54px; padding-top: 9px; padding-bottom: 9px; }
+.section-disclosure { width: 100%; text-align: left; padding: 5px 2px; border-radius: 5px; }
+.section-disclosure:hover { background: var(--surface); }
+.inspector-save { flex-shrink: 0; border-bottom: 1px solid var(--line); margin: 0; padding: 12px 18px; background: var(--surface); flex-wrap: wrap; }
+.inspector-save .inline-error { flex-basis: 100%; order: -1; font-size: 11px; }
+.draft-label { color: var(--accent); font-size: inherit; }
+.due-editor { padding: 5px 0 8px; }
+.due-editor label { min-height: 33px; }
+.inspector-group .due-editor input { width: 148px; font-variant-numeric: tabular-nums; }
+.inspector-group .due-editor input[type="time"] { width: 100px; }
+.date-add-time { margin-left: auto; color: var(--muted); padding: 4px 0 4px 8px; }
+.date-clear { display: grid; place-items: center; color: var(--muted); padding: 4px; }
+.date-shortcuts { display: flex; gap: 5px; padding: 3px 0 0 25px; }
+.date-shortcuts button { background: var(--bg); border: 1px solid var(--line); padding: 4px 7px; border-radius: 5px; font-size: 10px; display: inline-flex; align-items: center; }
+.date-shortcuts button:hover { border-color: var(--accent); color: var(--accent); }
+.inspector-title textarea { field-sizing: content; min-height: 24px; }
+.inspector .notes { field-sizing: content; min-height: 42px; max-height: 220px; }
+@media (max-width: 760px) {
+  .inspector { max-width: 100%; }
+  .inspector-save { padding-bottom: 18px; }
+  .collection-heading { align-items: flex-start; flex-wrap: wrap; }
+}
+.inspector-attachments { margin: 0 0 14px; }
+.inspector-attachments summary { color: var(--subtle); font-size: 11px; cursor: pointer; padding: 5px 0; }
+.inspector-attachments summary span { color: var(--muted); font-variant-numeric: tabular-nums; margin-left: 5px; }
+.inspector-attachments .attachment-preview { height: 110px; }
+.attachment-picker { position: relative; display: inline-flex; gap: 6px; align-items: center; padding: 8px 0; color: var(--accent); cursor: pointer; }
+.attachment-picker input { position: absolute; inset: 0; width: 100%; opacity: 0; cursor: pointer; }
+.attachment-picker:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.sidebar-close, .sidebar-backdrop { display: none; }
+@media (max-width: 760px) {
+  .workspace:not(.no-sidebar) .sidebar { z-index: 13; }
+  .sidebar-close { display: grid; place-items: center; padding: 4px; }
+  .sidebar-backdrop { display: block; position: absolute; inset: 0; z-index: 12; border-radius: 0; background: #0003; }
+}
+
+/* Keep enough room for the task list beside Details in desktop split views. */
+@media (max-width: 1100px) {
+  .toolbar-left > .icon-button { display: flex; }
+  .workspace:not(.no-sidebar) .sidebar { position: absolute; height: 100%; z-index: 13; box-shadow: 10px 0 40px #0002; }
+  .sidebar-close { display: grid; place-items: center; padding: 4px; }
+  .sidebar-backdrop { display: block; position: absolute; inset: 0; z-index: 12; border-radius: 0; background: #0003; }
+  .collection-heading { align-items: flex-start; flex-wrap: wrap; row-gap: 14px; }
+  .collection-heading > div:first-child { flex-basis: 100%; }
+}
