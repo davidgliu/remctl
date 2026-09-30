@@ -303,6 +303,32 @@ def all_day_due_iso(raw, *, ts):
     return datetime(day.year, day.month, day.day).isoformat()
 
 
+_MISSING = object()
+
+
+def timed_due_raw(row):
+    """A timed reminder's due date as a real instant, in Apple-epoch seconds.
+
+    Reminders stores a timed due date either as an instant, with ZTIMEZONE
+    set, or as floating wall-clock time encoded as if it were UTC, as GoodTask
+    and older versions of Reminders do: a 5 PM reminder is stored as 17:00Z.
+    A row is floating when it has no time zone, or when its display date is
+    exactly the wall-clock reading. The match has to be exact, because the
+    display date can also be an alarm near the due time. All-day rows and
+    instants come back unchanged.
+    """
+    raw = _row_get(row, "ZDUEDATE")
+    if raw is None or _row_get(row, "ZALLDAY"):
+        return raw
+    wall = datetime.fromtimestamp(float(raw) + APPLE_EPOCH_UNIX, tz=timezone.utc).replace(tzinfo=None)
+    floating = wall.timestamp() - APPLE_EPOCH_UNIX
+    time_zone = _row_get(row, "ZTIMEZONE", _MISSING)
+    display = _row_get(row, "ZDISPLAYDATEDATE")
+    if time_zone in (None, "") or (display is not None and round(float(display)) == round(floating)):
+        return floating
+    return raw
+
+
 def serialize_reminder(
     row,
     *,
@@ -360,14 +386,15 @@ def serialize_reminder(
         reminder["url"] = url
 
     due_date = None
+    due_raw = timed_due_raw(row)
     if row["ZDUEDATE"]:
         if _row_get(row, "ZALLDAY"):
             due_date = all_day_due_iso(row["ZDUEDATE"], ts=ts)
         else:
-            due_date = ts(row["ZDUEDATE"]).isoformat()
+            due_date = ts(due_raw).isoformat()
         reminder["dueDate"] = due_date
     display_date = _row_get(row, "ZDISPLAYDATEDATE")
-    if display_date and display_date != row["ZDUEDATE"]:
+    if display_date and display_date != due_raw:
         display_iso = ts(display_date).isoformat()
         if display_iso != due_date:
             reminder["displayDate"] = display_iso

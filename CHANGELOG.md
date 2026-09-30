@@ -5,6 +5,7 @@
 ### Fixes
 
 - A custom `PREFIX` works with the download and with `--from-source`. The installer puts the host's socket under the prefix, but the CLI looked for it in `~/Library/Application Support/RemCTL`, so every command that needs the host failed and onboarding couldn't grant permissions. The CLI now reads the socket from the host's LaunchAgent, and looks for that LaunchAgent in `~/Library/LaunchAgents`, where the installer puts it. ([#50](https://github.com/viticci/remctl/issues/50))
+- Timed reminders saved without a time zone, as GoodTask and older versions of Reminders save them, report their real due time. Reminders stores their wall-clock time as if it were UTC, and RemCTL read it as an exact moment, so `dueDate`, `info`, and alarm moves on `edit` were off by the UTC offset: a 5 PM reminder showed as 1 PM in New York. Today, Overdue, and Upcoming already placed these reminders correctly in 2.0. ([#49](https://github.com/viticci/remctl/issues/49))
 
 ## 2.0.0 — 2026-09-30
 

@@ -1,6 +1,8 @@
 """Offline checks for batch reminder extras and their fallback behavior."""
 
+import os
 import sqlite3
+import time
 import unittest
 from datetime import datetime, timezone
 from unittest import mock
@@ -157,3 +159,51 @@ class DueDateTests(unittest.TestCase):
         self.assertEqual(payload["dueDate"], "2026-09-30T09:30:00")
         self.assertEqual(payload["displayDate"], "2026-09-30T09:15:00")
         self.assertFalse(payload["allDay"])
+
+    def serialize_in_local_zone(self, zone, **fields):
+        """Serialize with the process time zone set, as the CLI's own ts() reads it."""
+        previous = os.environ.get("TZ")
+        os.environ["TZ"] = zone
+        time.tzset()
+        try:
+            return self.serialize_local(**fields)
+        finally:
+            if previous is None:
+                os.environ.pop("TZ", None)
+            else:
+                os.environ["TZ"] = previous
+            time.tzset()
+
+    def serialize_local(self, **fields):
+        row = dict(reminder_rows(1)[0], ZALLDAY=0, **fields)
+        ts = lambda value: datetime.fromtimestamp(value + APPLE_EPOCH) if value else None
+        return serialize_reminder(row, ts=ts, priority_names={})
+
+    def test_floating_timed_due_date_reads_as_wall_clock_time(self):
+        # Rows from issue #49, in New York on September 30 (UTC-4). Reminders.app
+        # stores an instant with a time zone; GoodTask stores 5 PM as 17:00Z with
+        # none; some rows carry a time zone but still hold wall-clock time.
+        utc = lambda hour, minute=0: apple_seconds(datetime(2026, 9, 30, hour, minute, tzinfo=timezone.utc))
+        cases = {
+            "instant": dict(ZDUEDATE=utc(21), ZDISPLAYDATEDATE=utc(21), ZTIMEZONE="America/New_York"),
+            "no time zone": dict(ZDUEDATE=utc(17), ZDISPLAYDATEDATE=utc(21), ZTIMEZONE=None),
+            "wall clock with a time zone": dict(ZDUEDATE=utc(12), ZDISPLAYDATEDATE=utc(16), ZTIMEZONE="America/New_York"),
+        }
+        expected = {"instant": "2026-09-30T17:00:00", "no time zone": "2026-09-30T17:00:00",
+                    "wall clock with a time zone": "2026-09-30T12:00:00"}
+        for name, fields in cases.items():
+            with self.subTest(name):
+                payload = self.serialize_in_local_zone("America/New_York", **fields)
+                self.assertEqual(payload["dueDate"], expected[name])
+                self.assertNotIn("displayDate", payload)
+
+    def test_floating_due_date_east_of_utc_and_alarm_near_an_instant(self):
+        utc = lambda hour, minute=0: apple_seconds(datetime(2026, 9, 30, hour, minute, tzinfo=timezone.utc))
+        payload = self.serialize_in_local_zone("Europe/Rome", ZDUEDATE=utc(17), ZTIMEZONE=None)
+        self.assertEqual(payload["dueDate"], "2026-09-30T17:00:00")
+        # An alarm 15 minutes early is a display date, not a floating due date.
+        payload = self.serialize_in_local_zone(
+            "America/New_York", ZDUEDATE=utc(21), ZDISPLAYDATEDATE=utc(20, 45), ZTIMEZONE="America/New_York",
+        )
+        self.assertEqual(payload["dueDate"], "2026-09-30T17:00:00")
+        self.assertEqual(payload["displayDate"], "2026-09-30T16:45:00")

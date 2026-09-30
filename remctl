@@ -44,6 +44,7 @@ from remctl_serialization import (
     recurrence_from_row,
     serialize_reminder,
     serialize_reminders,
+    timed_due_raw,
 )
 from remctl_smart_lists import (
     CUSTOM_SMART_LIST_TYPE,
@@ -2026,6 +2027,13 @@ def display_due_expr(db, table_alias="r"):
         return f"{table_alias}.ZDISPLAYDATEDATE"
     return "NULL"
 
+def time_zone_column(db, table_alias="r"):
+    """Select ZTIMEZONE only when the store has it: a NULL would mark every
+    timed reminder as floating."""
+    if reminder_has_column(db, "ZTIMEZONE"):
+        return f", {table_alias}.ZTIMEZONE"
+    return ""
+
 def due_expr(table_alias="r"):
     return f"{table_alias}.ZDUEDATE"
 
@@ -2050,7 +2058,7 @@ def rem_cols(db):
     {due_expr()} AS ZDUEDATE, {display_due_expr(db)} AS ZDISPLAYDATEDATE,
     r.ZALLDAY, r.ZCOMPLETIONDATE, r.ZCREATIONDATE,
     r.ZPARENTREMINDER, r.ZLIST, r.ZICSURL, r.ZCKIDENTIFIER, l.ZNAME as list_name,
-    {_RECURRENCE_COLS}"""
+    {_RECURRENCE_COLS}{time_zone_column(db)}"""
 
 def sort_reminder_rows_by_identifier_order(rows, identifier_order):
     """Return reminder rows in ReminderKit's persisted display order.
@@ -2758,14 +2766,14 @@ def should_carry_absolute_alarm_to_new_due(db, reminder, new_due, explicit_alarm
     alarm_dates = _absolute_alarm_datetimes(db, reminder)
     if not alarm_dates:
         return False
-    old_due = ts(_row_get(reminder, "ZDUEDATE"))
+    old_due = ts(timed_due_raw(reminder))
     return all(_same_datetime_second(alarm_dt, old_due) for alarm_dt in alarm_dates)
 
 def should_clear_matching_absolute_alarm(db, reminder):
     alarm_dates = _absolute_alarm_datetimes(db, reminder)
     if not alarm_dates:
         return False
-    old_due = ts(_row_get(reminder, "ZDUEDATE"))
+    old_due = ts(timed_due_raw(reminder))
     old_display = ts(_row_get(reminder, "ZDISPLAYDATEDATE"))
     return all(
         any(_same_datetime_second(alarm_dt, candidate) for candidate in (old_due, old_display))
@@ -2967,7 +2975,10 @@ def _item_is_all_day(item):
 
 def row_effective_due(item):
     """Raw due timestamp, with the local day for an all-day item."""
-    due = _item_get(item, "ZDUEDATE", _item_get(item, "dueDate"))
+    if _item_has(item, "ZDUEDATE"):
+        due = timed_due_raw(item)
+    else:
+        due = _item_get(item, "dueDate")
     if _item_is_all_day(item):
         display = _item_get(item, "ZDISPLAYDATEDATE", _item_get(item, "displayDate"))
         if display is not None:
@@ -10011,7 +10022,7 @@ def cmd_edit(a):
     # date first (bumped 1 hour), then the real target.
     dt_nudge = None
     if dt is not None and r["ZDUEDATE"] is not None:
-        current = ts(r["ZDUEDATE"])
+        current = ts(timed_due_raw(r))
         if current and int(current.timestamp()) == int(dt.timestamp()):
             dt_nudge = dt + (timedelta(days=1) if due_all_day else timedelta(hours=1))
     carry_absolute_alarm = should_carry_absolute_alarm_to_new_due(
