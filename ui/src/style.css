@@ -1957,3 +1957,12 @@ button.tag:hover {
 @keyframes capture-in {from {opacity:0;transform:translateY(-8px) scale(.985);}to {opacity:1;transform:none;}}
 @media(max-width:520px) {.capture-backdrop {padding:24px 12px 120px;}.capture-panel {padding:16px;}.capture-chips,.capture-date {margin-left:0;}.capture-title input {font-size:18px;}.capture-footer>span {font-size:10px;}}
 @media(prefers-reduced-motion:reduce) {.capture-panel {animation:none;}}
+
+.sidebar-list-row {position:relative;}
+.sidebar-list-row:has(.list-pin)>.nav-row {padding-right:33px;}
+.list-pin {position:absolute;right:5px;top:50%;transform:translateY(-50%);width:24px;height:26px;display:grid;place-items:center;opacity:0;color:var(--subtle);}
+.list-pin.pinned {opacity:1;color:var(--accent);}
+.sidebar-list-row:hover>.list-pin,.sidebar-list-row:focus-within>.list-pin {opacity:1;}
+.list-pin:hover {background:color-mix(in srgb,var(--accent) 12%,transparent);}
+.list-pin:disabled {opacity:.35;}
+@media(hover:none) {.list-pin {opacity:1;}}

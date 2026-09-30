@@ -22,13 +22,20 @@ Enable **Advanced Reminders features** in Settings for operations requiring RemC
 
 The visual smart-list editor covers all/any matching, tag exclusions, priorities, absolute and relative date ranges, time, multiple lists and locations. Preview matches before saving. The exact filter JSON remains editable. See the [complete capability map](desktop-capabilities.md).
 
+Open **New Reminder** or press **N** for floating Quick Add. The panel stays above the host's conversation composer. Choose a list, date and optional time, priority, flag or notes. Return in the title adds the reminder; ⌘Return adds it and keeps the panel ready for another. Escape or clicking outside keeps an unfinished draft for the next time you open it.
+
+Rows show notes, saved link cards and image attachments inline. Saved Apple link artwork takes precedence; **Load missing link previews** can fetch artwork from public linked websites when no saved image exists. Today separates overdue, all-day, morning, afternoon and evening reminders. App Radar notes show their changelog without changing the original stored notes.
+
+Hover over a sidebar list to reveal its pin button. Click to pin or unpin; pinned lists move to the top of their sidebar group. Pins sync with Apple Reminders. The button also works from the keyboard and for custom smart lists.
+
 ## Keyboard
 
 | Shortcut | Action |
 | --- | --- |
 | ⌘K | Search actions, lists and loaded reminders |
 | ⌘F | Search reminders |
-| N or ⌘N | Quick entry |
+| N or ⌘N | Floating Quick Add |
+| ⌘Return in Quick Add | Add and keep capturing |
 | ⌘⇧N | New list |
 | ↑ / ↓ | Move selection |
 | ⇧↑ / ⇧↓ or Shift-click | Extend selection |

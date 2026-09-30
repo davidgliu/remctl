@@ -899,6 +899,11 @@ function Workspace() {
       },
     ];
   };
+  const togglePin = (list: D, smart = false) => run(async () => {
+    const response = await change(list.pinned ? "manage_list_unpin" : "manage_list_pin", {...(smart ? {smart_list_id: list.id} : {list_id: list.id}), private: true});
+    if (response.status !== "partial" && response.status !== "uncertain") setToast(list.pinned ? "List unpinned" : "List pinned");
+  });
+  const pinButton = (list: D, smart = false) => !list.isGroup && <button type="button" className={"list-pin " + (list.pinned ? "pinned" : "")} aria-label={`${list.pinned ? "Unpin" : "Pin"} ${list.title || list.name}`} aria-pressed={Boolean(list.pinned)} title={settings.advancedFeatures ? (list.pinned ? "Unpin list" : "Pin list") : "Enable Advanced Reminders features to pin lists"} disabled={busy || !settings.advancedFeatures} onClick={() => togglePin(list, smart)}><Pin size={12} fill={list.pinned ? "currentColor" : "none"}/></button>;
   const listActions = (list: D): Action[] =>
     list.isGroup
       ? [
@@ -930,13 +935,7 @@ function Workspace() {
             label: list.pinned ? "Unpin list" : "Pin list",
             icon: <Pin size={15} />,
             disabled: !settings.advancedFeatures,
-            run: () =>
-              run(() =>
-                change(list.pinned ? "manage_list_unpin" : "manage_list_pin", {
-                  list_id: list.id,
-                  private: true,
-                }),
-              ),
+            run: () => togglePin(list),
           },
           {
             label: "New section…",
@@ -1471,8 +1470,10 @@ function Workspace() {
             </div>
             {lists
               .filter((l: D) => !l.parentListId)
+              .sort((a: D, b: D) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)))
               .map((list: D, index: number) => (
                 <React.Fragment key={list.id}>
+                  <div className="sidebar-list-row">
                   <button
                     className={
                       "nav-row " + (query.listId === list.id ? "chosen" : "")
@@ -1494,15 +1495,17 @@ function Workspace() {
                   >
                     <ListBadge list={list} color={colorFor(list, index)} />
                     <span>{list.title}</span>
-                    {list.pinned && <Pin size={10} />}
                     <small>{list.count || ""}</small>
                   </button>
+                  {pinButton(list)}
+                  </div>
                   {list.isGroup &&
                     lists
                       .filter((l: D) => l.parentListId === list.id)
+                      .sort((a: D, b: D) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)))
                       .map((child: D, j: number) => (
+                        <div className="sidebar-list-row" key={child.id}>
                         <button
-                          key={child.id}
                           onContextMenu={(e) =>
                             showContext(e, listActions(child))
                           }
@@ -1530,21 +1533,24 @@ function Workspace() {
                           <span>{child.title}</span>
                           <small>{child.count || ""}</small>
                         </button>
+                        {pinButton(child)}
+                        </div>
                       ))}
                 </React.Fragment>
               ))}
             <div className="nav-label">Smart Lists<button aria-label="New smart list" disabled={!settings.advancedFeatures} onClick={()=>openAction("manage_smart_list_create")}><Plus size={14}/></button></div>
             {data.smartLists
               ?.filter((l: D) => l.kind === "custom")
+              .sort((a: D, b: D) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)))
               .map((l: D) => (
+                <div className="sidebar-list-row" key={l.id}>
                 <button
-                  key={l.id}
                   className={
                     "nav-row " + (query.smartId === l.id ? "chosen" : "")
                   }
                   onClick={() => navigate({ view: "smart", smartId: l.id })}
                   onContextMenu={(e) => showContext(e, [
-                    {label: l.pinned ? "Unpin smart list" : "Pin smart list", run: () => run(()=>change(l.pinned ? "manage_list_unpin" : "manage_list_pin", {smart_list_id:l.id,private:true}))},
+                    {label: l.pinned ? "Unpin smart list" : "Pin smart list", disabled: !settings.advancedFeatures, run: () => togglePin(l, true)},
                     {label: "Edit smart list…", run: () => openAction("manage_smart_list_edit", {smart_list_id: l.id, private: true})},
                     {label: "Delete smart list…", danger: true, run: () => openAction("manage_smart_list_delete", {smart_list_id: l.id, private: true})},
                   ])}
@@ -1552,6 +1558,8 @@ function Workspace() {
                   <ListBadge list={{...l, badge: {...l.badge, image: symbols[l.badge?.symbol || "default"]}}} color={colorFor(l)} />
                   <span>{l.name}</span>
                 </button>
+                {pinButton(l, true)}
+                </div>
               ))}
           </nav>
           <div className="sidebar-footer">
