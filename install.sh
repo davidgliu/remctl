@@ -25,7 +25,7 @@ Options:
   --allow-local-build         Accept an explicitly selected local development build
   --migrate-signing           Allow an identity change; permissions may need onboarding
   --build-output DIRECTORY   Choose the new source-build output directory
-  --bootstrap                 Create first-run config after installation
+  --bootstrap                 Create config and start guided setup in an interactive terminal
   --doctor                    Run `remctl doctor` after an authorized upgrade/reinstall
   --dry-run                   Build and verify without publishing or starting the service
   --adopt-existing-install    Adopt exact 1.7.1 or a reviewed prerelease-host install once
@@ -959,3 +959,9 @@ fi
 echo -e "${DIM}Use '$BIN_DIR/remctl permissions full-disk-access' only to reopen or repair the exact-host Full Disk Access guide.${RESET}"
 echo -e "${DIM}Connect AI apps: '$BIN_DIR/remctl onboard' offers it, or run '$BIN_DIR/remctl mcp install' (Claude Code, Codex, Claude Desktop/Cowork) any time.${RESET}"
 if [[ ":$PATH:" != *":$BIN_DIR:"* ]]; then echo -e "${YELLOW}Add $BIN_DIR to PATH, then open a new Terminal window.${RESET}"; fi
+if [[ "$BOOTSTRAP" == "1" && "$CAPABILITY_SIMULATION" != "1" && -t 0 && -t 1 ]]; then
+    echo "Starting guided setup..."
+    if ! PYTHONDONTWRITEBYTECODE=1 "$CAPABILITY_PYTHON" "$BIN_DIR/remctl" onboard; then
+        echo "RemCTL is installed. Finish the reported permission steps, then run '$BIN_DIR/remctl doctor'."
+    fi
+fi

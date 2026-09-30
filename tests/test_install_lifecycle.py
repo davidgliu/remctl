@@ -140,8 +140,10 @@ class InstallerLifecycleTests(unittest.TestCase):
         install_source = INSTALL.read_text()
         uninstall_source = UNINSTALL.read_text()
 
-        self.assertIn("command-line client supports Python 3.10+", install_help)
-        self.assertIn("signed host requires", install_help)
+        self.assertIn("default downloads the notarized release", install_help)
+        self.assertIn("no Apple account or paid membership", install_help)
+        self.assertIn("Both include Python", install_help)
+        self.assertIn("guided setup in an interactive terminal", install_help)
         self.assertIn("after an authorized upgrade/reinstall", install_help)
         self.assertIn("Reminders, and Automation", uninstall_help)
         self.assertIn("First capability-host install: run", install_source)

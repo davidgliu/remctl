@@ -21,6 +21,8 @@ Open the release disk image for your Mac and double-click **Install RemCTL.comma
 
 The command downloads the matching disk image. Before installing, it checks the app's complete signature, the MacStories Developer ID and macOS Gatekeeper acceptance. It never silently falls back to an unsigned build.
 
+With `--bootstrap`, an interactive Terminal installation continues straight into guided onboarding. When input or output is redirected, it prints the command to run later instead of opening permission prompts.
+
 To install a previously downloaded app explicitly:
 
 ```bash

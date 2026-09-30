@@ -28,7 +28,7 @@ cd remctl
 ~/bin/remctl onboard
 ```
 
-The source command builds everything and creates a persistent local signing certificate. It does not sign in to Apple or require a subscription. Keep that certificate for future updates.
+The source command builds everything and creates a persistent local signing certificate. It does not sign in to Apple or require a subscription. Keep that certificate for future updates. In Terminal, `--bootstrap` starts guided onboarding after installation; the separate `onboard` command lets you resume it later.
 
 Both routes ask for a Mac administrator password to install protected Python under `/Library/RemCTL`. Onboarding guides the macOS permissions for **RemCTL Capability Host**. iCloud Reminders must be enabled. See [installation](docs/installation.md) for updates, custom paths and permission setup.
 

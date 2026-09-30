@@ -27,8 +27,13 @@ September 30, 2026. Local branch: `codex/remctl-distribution`. No push, main upd
 | CLI/MCP/desktop/events | 563 tests passed |
 | Native host original identity, post-start resign rejection, sealed invocation/broker | 4 tests passed |
 | Distribution-focused tests | 8 tests passed, including explicit signing migration |
+| Default download with no published artifact | Reports HTTP 404 and exits with failure; no silent fallback |
+| Notarization of a local certificate build | Rejected before submission |
+| Packaged license notices | Project, Python and locked UI dependency notices included |
 
 Simulation uses temporary prefixes and does not install a live LaunchAgent or grant permissions. These results do not prove fresh-machine permissions, protected-runtime installation or notarization.
+
+Final local preview: `dist/local-preview/RemCTL Capability Host.app`. Built by the actual `--from-source` command with the normal persistent key directory, whose directory/files were verified as owner-only. Packaged UI, plugin configuration, icon, installers and license notices match the checked-in inputs. `--bootstrap` now starts guided onboarding after installation when run in an interactive Terminal; redirected and test runs remain noninteractive.
 
 ## Remaining release gates
 

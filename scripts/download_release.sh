@@ -11,9 +11,9 @@ cleanup() {
     /usr/bin/hdiutil detach "$MOUNT" -quiet >/dev/null 2>&1 || true
     /usr/bin/trash "$STAGE" >/dev/null 2>&1 || true
 }
-trap cleanup EXIT
+trap 'download_status=$?; cleanup; exit "$download_status"' EXIT
 URL="https://github.com/viticci/remctl/releases/latest/download/RemCTL-$ARCH.dmg"
-echo "Downloading the signed RemCTL release for $ARCH…"
+echo "Downloading the signed RemCTL release for ${ARCH}..."
 if ! /usr/bin/curl --fail --location --silent --show-error --proto '=https' --tlsv1.2 "$URL" -o "$STAGE/RemCTL.dmg"; then
     echo "No downloadable release was available. To build this checkout for free, run ./install.sh --from-source." >&2
     exit 1

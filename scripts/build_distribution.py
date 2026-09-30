@@ -153,6 +153,8 @@ def build(output: Path, signing: dict, release: bool, cache: Path, architecture:
     info["CFBundleShortVersionString"] = re.search(r'^VERSION = "([^"]+)"', (ROOT / "remctl").read_text(), re.M).group(1)
     (app / "Contents/Info.plist").write_bytes(plistlib.dumps(info))
     shutil.copy2(ROOT / "assets/remctl.icns", resources / "remctl.icns")
+    shutil.copy2(ROOT / "LICENSE", resources / "LICENSE.txt")
+    shutil.copy2(ROOT / "ui/THIRD-PARTY-NOTICES.txt", resources / "UI-THIRD-PARTY-NOTICES.txt")
     target = architecture + "-apple-macosx14.0"
     run("swiftc", "-target", target, "-O", "-framework", "EventKit", "-framework", "Foundation", ROOT / "remctl-bridge.swift", "-o", helpers / "remctl-bridge")
     run("clang", "-arch", architecture, "-mmacosx-version-min=14.0", "-fobjc-arc", "-O", "-F/System/Library/PrivateFrameworks", "-framework", "Foundation", "-framework", "AppKit", "-framework", "ReminderKit", ROOT / "remctl-private.m", "-o", helpers / "remctl-private")
