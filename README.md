@@ -77,6 +77,10 @@ The server provides 21 tools for reading, creating, and editing reminders and li
 
 Clients that support MCP Apps can show a reminders widget with completion, rescheduling, renaming, and deletion. [The MCP guide](docs/mcp.md) covers tools and connections; [the Hermes guide](docs/hermes.md) covers Hermes Agent.
 
+The [desktop plugin](docs/desktop-plugin.md) adds a full Reminders workspace in Codex for Mac: list, columns and calendar layouts, a command palette, context menus, drag and drop, native list artwork, an inspector, selected conversation context, and editable RemCTL files. It uses the standalone RemCTL server and the existing signed Capability Host. The ordinary MCP connection remains available for other clients.
+
+[Install it from this repo](docs/desktop-install.md) through a local Codex marketplace. The built interface is included; no Node setup or OpenAI gallery listing is required. The guide covers host prerequisites, first setup, updates and removal.
+
 Serve the same tools to your other devices:
 
 ```bash

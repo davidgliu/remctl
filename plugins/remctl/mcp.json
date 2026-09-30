@@ -1,0 +1,17 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "remctl": {
+      "type": "stdio",
+      "command": "python3",
+      "args": [
+        "-c",
+        "import os,pathlib; p=str(pathlib.Path.home()/'bin'/'remctl'); os.execv(p,[p,'mcp'])"
+      ],
+      "env": {
+        "REMCTL_PLUGIN": "1",
+        "REMCTL_PLUGIN_BUILD": "ce1b96aa37c32af6"
+      }
+    }
+  }
+}

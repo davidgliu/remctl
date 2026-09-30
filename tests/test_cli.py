@@ -8205,6 +8205,22 @@ class CliTests(unittest.TestCase):
                 for statement in ('set name of r to "Renamed"', 'set body of r to "Notes"', "set priority of r to 1"):
                     self.assertLess(script.index(date_statement), script.index(statement), statement)
 
+    def test_cmd_edit_can_clear_recurrence_and_due_in_one_bridge_write(self):
+        reminder = {**self._FAKE_REMINDER, "ZDUEDATE": 798800400.0, "recurrence_frequency": 1}
+        args = SimpleNamespace(id=1, json=True, title=None, notes=None, priority=None,
+                               due="clear", url=None, recurrence="clear", alarm=None)
+        with (
+            mock.patch.object(self.remctl, "open_db", return_value=None),
+            mock.patch.object(self.remctl, "q_reminder", return_value=reminder),
+            mock.patch.object(self.remctl, "bridge_available", return_value=True),
+            mock.patch.object(self.remctl, "bridge_call_result", return_value=self._bridge_result({"status":"updated", "id":reminder["ZCKIDENTIFIER"]})) as write,
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            self.remctl.cmd_edit(args)
+        self.assertEqual(write.call_count,1)
+        self.assertTrue(write.call_args.args[0]["clearRecurrence"])
+        self.assertIsNone(write.call_args.args[0]["due"])
+
     def test_cmd_edit_refuses_to_clear_the_due_date_of_a_repeating_reminder(self):
         # Reminders will not save a repeating reminder without a due date. The
         # refusal comes before any write, so the title change is not applied alone.

@@ -1,0 +1,42 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "remctl",
+  "version": "0.2.2",
+  "description": "Your Apple Reminders. A powerful, beautifully focused Mac workspace.",
+  "author": {
+    "name": "Federico Viticci",
+    "url": "https://macstories.net"
+  },
+  "homepage": "https://github.com/viticci/remctl",
+  "license": "MIT",
+  "keywords": [
+    "reminders",
+    "tasks",
+    "macOS",
+    "productivity"
+  ],
+  "extensions": {
+    "com.openai": {
+      "onboardingSkill": "./skills/onboarding/SKILL.md",
+      "interface": {
+        "displayName": "RemCTL",
+        "shortDescription": "Apple Reminders for power users",
+        "longDescription": "Apple Reminders for power users inside Codex for Mac. A full task inspector, image attachments, tags, visual smart filters, list and calendar layouts, templates, and MCP Events. Runs locally through the signed RemCTL Capability Host.",
+        "developerName": "Federico Viticci",
+        "category": "Productivity",
+        "capabilities": [
+          "Interactive",
+          "Read",
+          "Write"
+        ],
+        "composerIcon": "./assets/navigation.svg",
+        "logo": "./assets/icon.png",
+        "logoDark": "./assets/icon.png",
+        "defaultPrompt": [
+          "Open my Reminders workspace.",
+          "Help me plan today using my reminders."
+        ]
+      }
+    }
+  }
+}

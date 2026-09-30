@@ -418,7 +418,7 @@ BATCH_MAX_IDS = 50
 PRIVATE_FIELDS = (
     "section", "section_id", "new_section", "subtasks", "assign", "unassign", "early_reminder", "urgent",
     "location_title", "location_address", "latitude", "longitude", "radius", "proximity",
-    "set_tags", "remove_tags", "clear_tags",
+    "set_tags", "remove_tags", "clear_tags", "grocery",
 )
 LIST_PRIVATE_FIELDS = ("symbol", "emoji", "groceries", "grocery_locale", "group", "group_id")
 
@@ -469,6 +469,7 @@ def _private_metadata_argv(args: dict[str, Any], *, extra_private: tuple[str, ..
     argv += _option(args, "set_tags", "--set-tags")
     argv += _repeated(args.get("remove_tags"), "--remove-tag")
     argv += _flag(args, "clear_tags", "--clear-tags")
+    argv += _flag(args, "grocery", "--grocery")
     argv += _option(args, "location_title", "--location-title")
     argv += _option(args, "location_address", "--location-address")
     argv += _option(args, "latitude", "--latitude")
@@ -585,7 +586,7 @@ def _argv_create_list(args):
 
 
 def _argv_update_list(args):
-    appearance = [key for key in ("color", "symbol", "emoji") if args.get(key) is not None]
+    appearance = [key for key in ("color", "symbol", "emoji", "groceries", "standard", "grocery_locale") if _requested(args, key)]
     if not args.get("private"):
         if appearance:
             raise ToolArgumentError(f"{', '.join(appearance)} need private: true; list appearance is written through ReminderKit.")
@@ -594,6 +595,8 @@ def _argv_update_list(args):
     options = _option(args, "new_name", "--new-name")
     for key in ("color", "symbol", "emoji"):
         options += _option(args, key, f"--{key}")
+    options += _flag(args, "groceries", "--groceries") + _flag(args, "standard", "--standard")
+    options += _option(args, "grocery_locale", "--grocery-locale")
     return _list_target(args, "list-edit", [*options, "--private"])
 
 
@@ -661,6 +664,7 @@ TAGS_HELP = (
     "otherwise create_reminder appends them to the title as #hashtags."
 )
 REMINDER_METADATA_PARAMS = (
+    Param("grocery", "boolean", "Categorize this reminder automatically in its Groceries list (private)."),
     Param("section", "string", "Existing section name in the target list (private).", max_length=512),
     Param("section_id", "string", "Section id from get_list, for lists with duplicate section names (private).", max_length=512),
     Param("new_section", "string", "Create this section in the target list and file the reminder there (private).", max_length=512),
@@ -732,7 +736,7 @@ UPDATE_FIELDS = (
     "title", "list", "list_id", "notes", "due", "priority", "recurrence", "alarm", "url",
     "tags", "set_tags", "remove_tags", "clear_tags", "section", "section_id", "new_section", "subtasks",
     "assign", "unassign", "early_reminder", "urgent", "location_address", "latitude", "longitude",
-    "location_title", "radius", "proximity",
+    "location_title", "radius", "proximity", "grocery",
 )
 
 TOOLS: tuple[Tool, ...] = (
@@ -841,7 +845,7 @@ TOOLS: tuple[Tool, ...] = (
             Param("notes", "string", "Plain-text notes.", max_length=16 * 1024),
             Param("due", "string", DUE_HELP, max_length=128),
             PRIORITY,
-            Param("recurrence", "string", RECURRENCE_HELP, max_length=128),
+            Param("recurrence", "string", RECURRENCE_HELP + " Also accepts an exported recurrence JSON object as a string.", max_length=4096),
             Param("alarm", "string", ALARM_HELP, max_length=64),
             Param("url", "string", "URL. A synced rich link with private: true; otherwise appended to the notes.", max_length=2048),
             Param("tags", "string", TAGS_HELP, max_length=512, coerce=_coerce_tag_list),
@@ -867,7 +871,7 @@ TOOLS: tuple[Tool, ...] = (
             Param("notes", "string", "Replacement notes.", max_length=16 * 1024),
             Param("due", "string", DUE_HELP + " Use clear to remove the due date; a repeating reminder must keep one.", max_length=128),
             PRIORITY,
-            Param("recurrence", "string", RECURRENCE_HELP, max_length=128),
+            Param("recurrence", "string", RECURRENCE_HELP + " Also accepts an exported recurrence JSON object as a string.", max_length=4096),
             Param("alarm", "string", ALARM_HELP + " Use clear to remove the alarm.", max_length=64),
             Param("url", "string", "URL. A synced rich link with private: true (added, never replaced); otherwise appended to the notes.", max_length=2048),
             Param("tags", "string", "Synced tags to add (private), as a list or comma-separated string.", max_length=512, coerce=_coerce_tag_list),
@@ -965,10 +969,13 @@ TOOLS: tuple[Tool, ...] = (
             Param("color", "string", "Color name or #RRGGBB (private).", max_length=32),
             Param("symbol", "string", "Official Reminders list symbol name (private).", max_length=128),
             Param("emoji", "string", "Emoji badge (private).", max_length=32),
+            Param("groceries", "boolean", "Convert to a Groceries list (private)."),
+            Param("standard", "boolean", "Convert to a standard list (private)."),
+            Param("grocery_locale", "string", "Groceries language, such as en_US or it_IT (private).", max_length=32),
             PRIVATE_OPT_IN,
         ),
         _argv_update_list, "change", read_only=False, idempotent=True, timeout=90,
-        require_one_of=("new_name", "color", "symbol", "emoji"), mutually_exclusive=(("list", "list_id"),),
+        require_one_of=("new_name", "color", "symbol", "emoji", "groceries", "standard", "grocery_locale"), mutually_exclusive=(("list", "list_id"), ("groceries", "standard")),
         output_schema=OBJECT_OUTPUT_SCHEMA,
     ),
     Tool(
@@ -1502,6 +1509,8 @@ class RequestContext:
     version: str | None
     apps: bool
     legacy_aliases: bool
+    capabilities: dict[str, Any] = field(default_factory=dict)
+    principal: str | None = None
 
 
 @dataclass
@@ -1517,6 +1526,7 @@ class LegacySession:
     capabilities: dict[str, Any] = field(default_factory=dict)
     request_scope: object = field(default_factory=object, repr=False)
     last_used: float = field(default_factory=time.monotonic, repr=False)
+    principal: str | None = None
 
 
 @dataclass
@@ -1535,6 +1545,12 @@ class MCPServer:
         self.config = config
         self.default_session = LegacySession()
         self._widget_html: str | None = None
+        self.plugin = None
+        from remctl_events import EventService
+        self.events = EventService(self._event_snapshot)
+        if os.environ.get("REMCTL_PLUGIN") == "1":
+            from remctl_plugin import Plugin
+            self.plugin = Plugin(self)
 
     # -- identity -------------------------------------------------------------
 
@@ -1549,14 +1565,27 @@ class MCPServer:
             info["icons"] = list(self.config.icons)
         return info
 
-    @staticmethod
-    def capabilities() -> dict[str, Any]:
-        return {
+    def capabilities(self) -> dict[str, Any]:
+        capabilities = {
             "tools": {"listChanged": False},
+            "events": {},
             "resources": {"listChanged": False, "subscribe": False},
             "prompts": {"listChanged": False},
             "extensions": {UI_EXTENSION_ID: {}},
         }
+        if self.plugin:
+            capabilities["extensions"]["openai/settings"] = {"readTool": "read_settings", "updateTool": "update_settings"}
+        return capabilities
+
+    def _event_snapshot(self):
+        command = self.config.executor.run(("events", uuid.uuid4().hex),
+            ["workspace", "--request", '{"operation":"events"}', "--json"], timeout=120)
+        if command.returncode != 0:
+            raise ValueError("Reminders event observation is unavailable")
+        data = json.loads(command.stdout)
+        if not isinstance(data, dict) or not isinstance(data.get("items"), list) or not isinstance(data.get("lists"), list):
+            raise ValueError("Incomplete Reminders event snapshot")
+        return data
 
     def widget_html(self) -> str:
         if self._widget_html is None:
@@ -1591,9 +1620,10 @@ class MCPServer:
                 version if has_version else MODERN_PROTOCOL_VERSIONS[0],
                 apps=client_supports_apps(capabilities),
                 legacy_aliases=False,
+                capabilities=capabilities if isinstance(capabilities, dict) else {},
             )
         apps = client_supports_apps(session.capabilities)
-        return RequestContext("legacy", session.version, apps=apps, legacy_aliases=not apps)
+        return RequestContext("legacy", session.version, apps=apps, legacy_aliases=not apps, capabilities=session.capabilities)
 
     # -- message handling -----------------------------------------------------
 
@@ -1616,7 +1646,8 @@ class MCPServer:
         request_id = message.get("id")
         method = message.get("method")
         if "method" not in message:
-            # A response from the client; this server never sends requests, so ignore it.
+            if self.plugin:
+                self.plugin.accept_response(message)
             return None
         if not isinstance(method, str):
             return self._error_response(request_id if has_id else None, ERR_INVALID_REQUEST, "Invalid Request")
@@ -1633,6 +1664,8 @@ class MCPServer:
         _debug(f"request {request_id} {method}")
         try:
             context = self.classify(method, params or {}, session)
+            from remctl_events import local_principal
+            context.principal = session.principal or local_principal()
             result = self._dispatch(method, params or {}, context, request_id, session)
         except RPCError as exc:
             return self._error_response(request_id, exc.code, exc.message, exc.data)
@@ -1670,6 +1703,12 @@ class MCPServer:
             return self._initialize(params, session)
         if method == "ping":
             return {}
+        if method in {"events/list", "events/subscribe", "events/unsubscribe"}:
+            from remctl_events import EventError
+            try:
+                return self.events.dispatch(method, params, context.principal)
+            except EventError as exc:
+                raise RPCError(exc.code, exc.message, exc.data) from exc
         if method == "tools/list":
             return self._tools_list(context)
         if method == "tools/call":
@@ -1746,13 +1785,20 @@ class MCPServer:
 
     def _tools_list(self, context: RequestContext) -> dict[str, Any]:
         ui_meta = tool_ui_meta(apps=context.apps, legacy_aliases=context.legacy_aliases)
+        if self.plugin and ui_meta:
+            from remctl_plugin import UI_URI
+            ui_meta = {**ui_meta, "ui": {"resourceUri": UI_URI, "visibility": ["model", "app"]}, "openai/outputTemplate": UI_URI}
         tools = [tool_descriptor(tool, ui_meta=ui_meta) for tool in TOOLS]
+        if self.plugin:
+            tools.extend(self.plugin.descriptors())
         return self._cacheable({"tools": tools}, context)
 
     def _tools_call(self, params: dict[str, Any], context: RequestContext, request_id: Any) -> dict[str, Any]:
         name = params.get("name")
         if not isinstance(name, str) or not name:
             raise RPCError(ERR_INVALID_PARAMS, "Missing tool name.")
+        if self.plugin and name not in TOOLS_BY_NAME:
+            return self.plugin.call(name, params.get("arguments") or {}, context, request_id, params)
         tool = TOOLS_BY_NAME.get(name)
         if tool is None:
             raise RPCError(ERR_INVALID_PARAMS, f"Unknown tool: {name}", {"availableTools": [item.name for item in TOOLS]})
@@ -1771,6 +1817,9 @@ class MCPServer:
             command = self.config.executor.run(request_id, argv, timeout=tool.timeout, stdin_text=stdin_text)
             result = tool_result_from_command(tool, command)
         meta = result_ui_meta(tool, apps=context.apps, legacy_aliases=context.legacy_aliases)
+        if self.plugin and meta:
+            from remctl_plugin import UI_URI
+            meta = {**meta, "ui": {"resourceUri": UI_URI}, "openai/outputTemplate": UI_URI}
         if meta:
             result["_meta"] = meta
         return result
@@ -1779,12 +1828,20 @@ class MCPServer:
 
     def _resources_list(self, context: RequestContext) -> dict[str, Any]:
         resources = [ui_resource_descriptor()] if context.apps else []
+        if self.plugin:
+            from remctl_plugin import UI_URI, MIME
+            resources.append({"uri": UI_URI, "name": "Reminders Workspace", "mimeType": MIME})
         return self._cacheable({"resources": resources}, context)
 
     def _resources_read(self, params: dict[str, Any], context: RequestContext) -> dict[str, Any]:
         uri = params.get("uri")
         if not isinstance(uri, str) or not uri:
             raise RPCError(ERR_INVALID_PARAMS, "Missing resource uri.")
+        if self.plugin and (uri.startswith("remctl://") or uri.startswith("ui://remctl/workspace-")):
+            try:
+                return self.plugin.resource(uri, context)
+            except ValueError as exc:
+                raise RPCError(ERR_INVALID_PARAMS, str(exc)) from exc
         if uri not in UI_READABLE_RESOURCE_URIS:
             code = ERR_INVALID_PARAMS if context.era == "modern" else ERR_LEGACY_RESOURCE_NOT_FOUND
             raise RPCError(code, "Resource not found", {"uri": uri})
@@ -1835,6 +1892,10 @@ def serve_stdio(server: MCPServer, stdin: io.BufferedReader | None = None, stdou
             writer.write(data)
             writer.flush()
 
+    if server.plugin:
+        server.plugin.send_request = send
+    if stdin is None:
+        server.events.start()
     pool = concurrent.futures.ThreadPoolExecutor(max_workers=max(1, server.config.max_workers))
     pending: set[concurrent.futures.Future[None]] = set()
     try:
@@ -1850,6 +1911,9 @@ def serve_stdio(server: MCPServer, stdin: io.BufferedReader | None = None, stdou
                 send(MCPServer._error_response(None, ERR_PARSE, "Parse error"))
                 continue
 
+            if isinstance(message, dict) and "method" not in message:
+                server.handle_message(message)
+                continue
             ticket = None
             key = None
             if (isinstance(message, dict) and message.get("method") == "tools/call"
@@ -1875,6 +1939,7 @@ def serve_stdio(server: MCPServer, stdin: io.BufferedReader | None = None, stdou
                 pending.add(future)
                 future.add_done_callback(pending.discard)
     finally:
+        server.events.close()
         pool.shutdown(wait=True)
     return 0
 
@@ -2559,7 +2624,9 @@ class MCPHTTPHandler(http.server.BaseHTTPRequestHandler):
             self._rpc_error(400, exc.code, exc.message, request_id)
             return
         headers = {"MCP-Protocol-Version": MODERN_PROTOCOL_VERSIONS[0]}
-        response = self.mcp_server.handle_message(message, LegacySession())
+        from remctl_events import http_principal
+        principal = http_principal(self.headers.get("Authorization", "").strip().partition(" ")[2].strip())
+        response = self.mcp_server.handle_message(message, LegacySession(principal=principal))
         if response is None:
             self._send_json(202, None, headers)
             return
@@ -2605,6 +2672,8 @@ class MCPHTTPHandler(http.server.BaseHTTPRequestHandler):
         else:
             # No session id means no shared request-id or cancellation namespace.
             session = LegacySession()
+        from remctl_events import http_principal
+        session.principal = http_principal(self.headers.get("Authorization", "").strip().partition(" ")[2].strip())
         response = self.mcp_server.handle_message(message, session)
         extra["MCP-Protocol-Version"] = session.version or LATEST_LEGACY_PROTOCOL_VERSION
         if response is None:
@@ -2659,6 +2728,7 @@ def make_http_server(server: MCPServer, transport: HTTPTransportConfig, host: st
 
 def serve_http(server: MCPServer, transport: HTTPTransportConfig, host: str = "127.0.0.1", port: int = HTTP_DEFAULT_PORT) -> int:
     httpd = make_http_server(server, transport, host, port)
+    server.events.start()
     sys.stderr.write(f"remctl mcp: Streamable HTTP endpoint on http://{host}:{port}/ (bearer token required)\n")
     sys.stderr.flush()
     try:
@@ -2666,6 +2736,7 @@ def serve_http(server: MCPServer, transport: HTTPTransportConfig, host: str = "1
     except KeyboardInterrupt:
         pass
     finally:
+        server.events.close()
         httpd.server_close()
     return 0
 

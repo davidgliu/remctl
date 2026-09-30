@@ -7379,6 +7379,12 @@ def parse_recurrence(spec):
         return normalize_recurrence_object(spec)
     if not isinstance(spec, str) or not spec:
         return None
+    if spec.lstrip().startswith("{"):
+        try:
+            decoded = json.loads(spec)
+        except ValueError:
+            return None
+        return normalize_recurrence_object(decoded) if isinstance(decoded, dict) else None
     parts = spec.lower().split()
     if not parts:
         return None
@@ -9959,7 +9965,8 @@ def cmd_edit(a):
             print("Error: priority must be high, medium, low, or none.", file=sys.stderr)
             sys.exit(1)
     parsed_recurrence = None
-    if hasattr(a, 'recurrence') and a.recurrence:
+    clear_recurrence = isinstance(getattr(a, "recurrence", None), str) and a.recurrence.strip().lower() in {"clear", "none", "never"}
+    if getattr(a, "recurrence", None) and not clear_recurrence:
         parsed_recurrence = recurrence_or_die(a.recurrence)
 
     # Parse due date exactly once, up front. Warn loudly if an unparseable
@@ -9975,7 +9982,7 @@ def cmd_edit(a):
         fail_early_reminder_without_due(json_mode=getattr(a, "json", False))
     if early_reminder_requires_due_date(a) and dt is None and not r["ZDUEDATE"]:
         fail_early_reminder_without_due(json_mode=getattr(a, "json", False))
-    if a.due == "clear" and _row_get(r, "recurrence_frequency") is not None:
+    if a.due == "clear" and _row_get(r, "recurrence_frequency") is not None and not clear_recurrence:
         fail_repeating_reminder_needs_due(a.id, json_mode=getattr(a, "json", False))
     parsed_alarm = None
     clear_alarm = False
@@ -10029,7 +10036,7 @@ def cmd_edit(a):
         or a.priority
         or a.due
         or (hasattr(a, 'url') and a.url)
-        or parsed_recurrence is not None
+        or parsed_recurrence is not None or clear_recurrence
         or clear_alarm
         or parsed_alarm
         or wants_private
@@ -10094,7 +10101,9 @@ def cmd_edit(a):
             data["due"] = dt.isoformat(); has_changes = True
             if due_all_day:
                 data["allDay"] = True
-        if parsed_recurrence is not None:
+        if clear_recurrence:
+            data["clearRecurrence"] = True; has_changes = True
+        elif parsed_recurrence is not None:
             data["recurrence"] = parsed_recurrence; has_changes = True
         if clear_alarm:
             data["clearAlarms"] = True; has_changes = True
@@ -10171,7 +10180,7 @@ def cmd_edit(a):
         and bridge_write_result.get("returncode") != 0
         and (
             target_list_ref
-            or parsed_recurrence is not None
+            or parsed_recurrence is not None or clear_recurrence
             or clear_alarm
             or parsed_alarm
             or wants_private
@@ -11675,6 +11684,10 @@ def cmd_import(a):
             for error in validation_errors:
                 print(f"  Item {error['index']}: {error['message']}", file=sys.stderr)
         sys.exit(1)
+
+    if getattr(a, "dry_run", False):
+        print(json.dumps({"status": "valid", "count": len(add_args), "created": 0}))
+        return
 
     created_ids = []
     created = 0
@@ -14129,6 +14142,16 @@ def parse_cli_args(parser, subparsers, argv=None):
     return parser.parse_args(args)
 
 
+def cmd_workspace(a):
+    from remctl_workspace import execute
+    try:
+        result = execute(json.loads(a.request), globals())
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        sys.exit(1)
+    print(json.dumps(result, ensure_ascii=False, default=str))
+
+
 def build_parser():
     """Construct the full CLI parser; returns (parser, subparsers action).
 
@@ -14989,6 +15012,7 @@ def build_parser():
         formatter_class=HelpFormatter,
     )
     c.add_argument("file", help="Path to JSON file, or - for stdin"); js(c)
+    c.add_argument("--dry-run", action="store_true", help="Validate every reminder without creating any")
 
     c = sub.add_parser(
         "onboard",
@@ -15162,6 +15186,10 @@ def build_parser():
     s.add_argument("--open", action="store_true", help="Open the bundle in Claude Desktop after building it")
     js(s)
 
+    c = sub.add_parser("workspace", help="Read a bounded desktop workspace snapshot")
+    c.add_argument("--request", required=True, help="JSON workspace read request")
+    js(c)
+
     return p, sub
 
 
@@ -15236,6 +15264,7 @@ def main():
 
     # Route to command handler
     cmds = {
+        "workspace": cmd_workspace,
         "lists": cmd_lists,
         "groups": cmd_groups,
         "group-info": cmd_group_info,

@@ -25,3 +25,7 @@ __pycache__/
 
 # Generated shell completion output
 /completions/
+
+# Desktop plugin frontend dependencies
+/ui/node_modules/
+/ui/dist/

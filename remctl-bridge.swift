@@ -17,6 +17,7 @@ struct Command: Decodable {
     let url: String?
     let flagged: Bool?
     let recurrence: RecurrenceSpec?
+    let clearRecurrence: Bool?
     let alarm: String?
     let allDay: Bool?
     let clearAlarms: Bool?
@@ -396,6 +397,9 @@ func applyFields(_ reminder: EKReminder, _ cmd: Command, store: EKEventStore) {
         fail("flagged is not supported: EventKit cannot set the real flagged state; use the AppleScript path or remctl-private set_flagged")
     }
 
+    if cmd.clearRecurrence == true {
+        reminder.recurrenceRules = []
+    }
     if let spec = cmd.recurrence {
         guard let rule = buildRecurrenceRule(spec) else { fail("Invalid recurrence") }
         reminder.recurrenceRules = [rule]

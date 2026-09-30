@@ -501,6 +501,20 @@ class ToolCallTests(unittest.TestCase):
         self.assertEqual(change["_meta"][remctl_mcp.UI_RESULT_META_KEY]["profile"], "change")
         self.assertNotIn("actions", change["_meta"][remctl_mcp.UI_RESULT_META_KEY])
 
+    def test_grocery_metadata_and_list_conversion_require_private_opt_in(self):
+        for name, arguments, expected in [
+            ("update_reminder", {"reminder_id":42,"grocery":True}, ["--grocery"]),
+            ("update_list", {"list_id":9,"groceries":True,"grocery_locale":"it_IT"}, ["--groceries","--grocery-locale","it_IT"]),
+            ("update_list", {"list_id":9,"standard":True}, ["--standard"]),
+        ]:
+            tool=remctl_mcp.TOOLS_BY_NAME[name]
+            with self.subTest(name=name,arguments=arguments):
+                with self.assertRaises(ValueError):tool.build_argv(arguments)
+                argv=tool.build_argv({**arguments,"private":True})
+                for flag in expected:self.assertIn(flag,argv)
+        with self.assertRaises(ValueError):
+            remctl_mcp.validate_arguments(remctl_mcp.TOOLS_BY_NAME["update_list"], {"list_id":9,"groceries":True,"standard":True,"private":True})
+
     def test_widget_actions_target_real_tools_with_valid_arguments(self):
         for action in remctl_mcp.REMINDER_ROW_ACTIONS:
             with self.subTest(action=action["id"]):

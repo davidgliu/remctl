@@ -14,6 +14,8 @@
     <string>6.0</string>
     <key>CFBundleName</key>
     <string>RemCTL Capability Host</string>
+    <key>CFBundleIconFile</key>
+    <string>remctl.icns</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>

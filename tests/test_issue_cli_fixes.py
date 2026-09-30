@@ -23,6 +23,14 @@ class IssueCliFixTests(unittest.TestCase):
     def setUpClass(cls):
         cls.cli = load_module('remctl_issue_cli', 'remctl')
 
+    def test_import_dry_run_validates_without_calling_add(self):
+        with (mock.patch('sys.stdin', io.StringIO('[{"title":"Preview","due":"2026-10-02"}]')),
+              mock.patch.object(self.cli, 'cmd_add') as add,
+              contextlib.redirect_stdout(io.StringIO()) as output):
+            self.cli.cmd_import(SimpleNamespace(file='-',json=True,dry_run=True))
+        add.assert_not_called()
+        self.assertEqual(json.loads(output.getvalue()),{'status':'valid','count':1,'created':0})
+
     def test_image_options_reach_add_and_edit(self):
         for command in ('add', 'edit'):
             for option in (['--image', '/tmp/test.png'], ['--image=/tmp/test.png']):
@@ -38,6 +46,7 @@ class IssueCliFixTests(unittest.TestCase):
         exported = recurrence_from_row(row)
         expected = {'frequency': 'monthly', 'interval': 2, 'daysOfWeek': [6], 'weekNumbers': [-1], 'count': 8}
         self.assertEqual(self.cli.parse_recurrence(exported), expected)
+        self.assertEqual(self.cli.parse_recurrence(json.dumps(exported)), expected)
         seen = []
         def add(args):
             seen.append(self.cli.recurrence_or_die(args.recurrence))

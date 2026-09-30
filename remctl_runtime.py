@@ -85,6 +85,7 @@ HOSTED_COMMANDS = frozenset(
         "unflag",
         "upcoming",
         "urgent",
+        "workspace",
     }
 )
 
