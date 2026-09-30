@@ -19,7 +19,7 @@ You don't need an Apple account, a developer membership, Homebrew, or your own P
 
 ## Download
 
-Download `RemCTL-arm64.dmg` from [Releases](https://github.com/viticci/remctl/releases), open it, and double-click 'Install RemCTL.command'. The download is for Macs with Apple silicon. On an Intel Mac, [build it yourself](#build-it-yourself); that route is designed for Intel too, but it hasn't been tested on one yet.
+Download `RemCTL-arm64.dmg` from [Releases](https://github.com/viticci/remctl/releases), open it, and double-click 'Install RemCTL'. macOS asks whether to open an app downloaded from the internet; click Open, and Terminal runs the installer. The download is for Macs with Apple silicon. On an Intel Mac, [build it yourself](#build-it-yourself); that route is designed for Intel too, but it hasn't been tested on one yet.
 
 From a checkout, this does the same thing:
 
@@ -108,7 +108,7 @@ A host that just started may report Automation as `targetNotRunning` or `unknown
 
 | You have | Do this |
 | --- | --- |
-| RemCTL 2.0 from the download | Download the new release and run 'Install RemCTL.command' again, or run `./install.sh` from a checkout. |
+| RemCTL 2.0 from the download | Download the new release and open 'Install RemCTL' again, or run `./install.sh` from a checkout. |
 | RemCTL 2.0 you built yourself | `git pull`, then `./install.sh --from-source`. |
 | A 2.0 prerelease installed from `main` with your own Apple Development certificate | `git pull`, then `./install.sh --from-source`. |
 | RemCTL 1.7.1 | See [Upgrading from 1.7.1](#upgrading-from-171). |
@@ -132,14 +132,14 @@ After an upgrade:
 
 ### Upgrading from 1.7.1
 
-RemCTL 1.7.1 had no Capability Host and didn't record which files it installed, so the new installer won't replace them on its own. Tell it to take them over, once:
+RemCTL 1.7.1 had no Capability Host and didn't record which files it installed. The installer recognizes the exact files 1.7.1 shipped and asks before replacing them. Open 'Install RemCTL' from the download, or run this from your checkout:
 
 ```bash
 git pull
-./install.sh --from-source --adopt-existing-install --bootstrap
+./install.sh --from-source --bootstrap
 ```
 
-Use the same prefix as your old install. `--adopt-existing-install` only accepts the exact files 1.7.1 shipped. If anything differs, it stops and lists the RemCTL files it found; move anything you changed out of the way and try again. Don't use this flag for routine upgrades.
+Answer yes when it asks to upgrade 1.7.1, and use the same prefix as your old install. If you changed any of those files, the installer can't verify them, so it lists them and offers to move them to the Trash instead. Your settings in `~/.config/remctl` stay either way. Without a terminal to answer in, for example from a script, add `--adopt-existing-install` to upgrade an exact 1.7.1.
 
 Because the host is new, onboarding asks for permissions once. You can remove the Reminders and Full Disk Access grants you gave Terminal for 1.x afterwards; RemCTL doesn't use them anymore.
 

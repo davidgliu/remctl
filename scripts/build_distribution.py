@@ -24,6 +24,7 @@ from local_signing import identity as local_identity
 
 ROOT = Path(__file__).resolve().parents[1]
 APP_NAME = "RemCTL Capability Host.app"
+INSTALLER_NAME = "Install RemCTL.app"
 BUNDLE_ID = "net.macstories.remctl.capability-host"
 MACH_MAGIC = {b"\xcf\xfa\xed\xfe", b"\xce\xfa\xed\xfe", b"\xfe\xed\xfa\xcf", b"\xca\xfe\xba\xbe", b"\xbe\xba\xfe\xca"}
 
@@ -122,6 +123,25 @@ def sign(path: Path, signing: dict, release: bool, *, executable=False, entitlem
     run(*args, path, stdout=subprocess.DEVNULL)
 
 
+def build_installer(output: Path, signing: dict, release: bool, target: str, version: str) -> Path:
+    """The disk image's double-click entry point; see remctl-installer.swift."""
+    app = output / INSTALLER_NAME
+    (app / "Contents/MacOS").mkdir(parents=True)
+    (app / "Contents/Resources").mkdir()
+    (app / "Contents/Info.plist").write_bytes(plistlib.dumps({
+        "CFBundleIdentifier": "net.macstories.remctl.installer", "CFBundleName": "Install RemCTL",
+        "CFBundleExecutable": "Install RemCTL", "CFBundleIconFile": "remctl", "CFBundlePackageType": "APPL",
+        "CFBundleShortVersionString": version, "CFBundleVersion": version,
+        "LSMinimumSystemVersion": "14.0", "LSUIElement": True,
+    }))
+    shutil.copy2(ROOT / "assets/remctl.icns", app / "Contents/Resources/remctl.icns")
+    run("swiftc", "-target", target, "-O", "-framework", "AppKit", "-framework", "Foundation",
+        ROOT / "remctl-installer.swift", "-o", app / "Contents/MacOS/Install RemCTL")
+    sign(app, signing, release, executable=True)
+    run("/usr/bin/codesign", "--verify", "--deep", "--strict", app)
+    return app
+
+
 def build(output: Path, signing: dict, release: bool, cache: Path, architecture: str | None = None) -> Path:
     architecture = architecture or platform.machine()
     archive, config = runtime_archive(architecture, cache)
@@ -208,6 +228,7 @@ def build(output: Path, signing: dict, release: bool, cache: Path, architecture:
     run("/usr/bin/codesign", "--verify", "--deep", "--strict", "--verbose=2", app)
     if release:
         run("/usr/bin/codesign", "--verify", "--strict", "-R", '=identifier "net.macstories.remctl.capability-host" and anchor apple generic and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = "4W35M4UN6R"', app)
+        build_installer(output, signing, release, target, info["CFBundleShortVersionString"])
     print(app)
     return app
 

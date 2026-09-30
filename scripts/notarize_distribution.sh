@@ -8,9 +8,11 @@ fi
 BUILD="$(cd "$1" && pwd -P)"
 PROFILE="$2"
 APP="$BUILD/RemCTL Capability Host.app"
+INSTALLER="$BUILD/Install RemCTL.app"
 PUBLISHER='anchor apple generic and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = "4W35M4UN6R"'
 REQUIREMENT="=identifier \"net.macstories.remctl.capability-host\" and $PUBLISHER"
 /usr/bin/codesign --verify --deep --strict -R "$REQUIREMENT" "$APP"
+/usr/bin/codesign --verify --deep --strict -R "=identifier \"net.macstories.remctl.installer\" and $PUBLISHER" "$INSTALLER"
 [[ "$(/usr/bin/codesign -dvvv "$APP" 2>&1)" == *"runtime"* ]] || { echo "Hardened runtime is required." >&2; exit 1; }
 # Sign the disk image with the same publisher as its app. Notarization alone
 # does not give an unsigned DMG a Gatekeeper-verifiable publisher signature.
@@ -43,22 +45,21 @@ submit() {
         return 1
     fi
 }
-# Submit the app first so its stapled ticket is inside the final disk image.
-/usr/bin/ditto -c -k --keepParent "$APP" "$BUILD/notarization.zip"
+# Submit both apps first so their stapled tickets are inside the final disk image.
+APPS="$(mktemp -d "$BUILD/notarization-apps.XXXXXX")"
+/usr/bin/ditto "$APP" "$APPS/RemCTL Capability Host.app"
+/usr/bin/ditto "$INSTALLER" "$APPS/Install RemCTL.app"
+/usr/bin/ditto -c -k --keepParent "$APPS" "$BUILD/notarization.zip"
 submit "$BUILD/notarization.zip" app
-/usr/bin/xcrun stapler staple "$APP"
-/usr/bin/xcrun stapler validate "$APP"
+for bundle in "$APP" "$INSTALLER"; do
+    /usr/bin/xcrun stapler staple "$bundle"
+    /usr/bin/xcrun stapler validate "$bundle"
+done
 PAYLOAD="$(mktemp -d "$BUILD/dmg-payload.XXXXXX")"
 /usr/bin/ditto "$APP" "$PAYLOAD/RemCTL Capability Host.app"
-cat > "$PAYLOAD/Install RemCTL.command" <<'INSTALL'
-#!/bin/bash
-set -euo pipefail
-HERE="$(cd "$(dirname "$0")" && pwd)"
-APP="$HERE/RemCTL Capability Host.app"
-/usr/bin/codesign --verify --deep --strict -R '=identifier "net.macstories.remctl.capability-host" and anchor apple generic and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = "4W35M4UN6R"' "$APP"
-exec /bin/bash "$APP/Contents/Resources/Distribution/install.sh" --prebuilt "$APP" --bootstrap
-INSTALL
-chmod 755 "$PAYLOAD/Install RemCTL.command"
+# Gatekeeper refuses unsigned scripts and notarization ignores signed ones, so
+# the double-click entry point is a signed app (remctl-installer.swift).
+/usr/bin/ditto "$INSTALLER" "$PAYLOAD/Install RemCTL.app"
 /usr/bin/hdiutil create -volname RemCTL -srcfolder "$PAYLOAD" -format UDZO "$DMG"
 /usr/bin/codesign --sign "$IDENTITY" --timestamp "$DMG"
 /usr/bin/codesign --verify --strict -R "=$PUBLISHER" "$DMG"
@@ -66,6 +67,7 @@ submit "$DMG" dmg
 /usr/bin/xcrun stapler staple "$DMG"
 /usr/bin/xcrun stapler validate "$DMG"
 /usr/sbin/spctl --assess --type execute "$APP"
+/usr/sbin/spctl --assess --type execute "$INSTALLER"
 /usr/sbin/spctl --assess --type open --context context:primary-signature "$DMG"
-/usr/bin/shasum -a 256 "$DMG" > "$DMG.sha256"
+(cd "$BUILD" && /usr/bin/shasum -a 256 "$(basename "$DMG")" > "$(basename "$DMG").sha256")
 echo "Notarized release ready: $DMG"

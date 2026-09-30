@@ -37,7 +37,7 @@ The command syntax below documents the underlying options; it is not an instruct
 
 ## Setup and diagnosis
 
-Install and onboard once. The user either runs 'Install RemCTL.command' from the release disk image, or builds from a checkout:
+Install and onboard once. The user either opens 'Install RemCTL' from the release disk image, or builds from a checkout:
 
 ```bash
 cd /path/to/remctl && ./install.sh --from-source --bootstrap
@@ -73,7 +73,7 @@ remctl mcp config --format tailscale         # commands and token for another de
 
 The Codex plugin provides its own RemCTL connection. If the user has it, don't also add `remctl mcp install --client codex`; remove that duplicate with `remctl mcp remove --client codex`. See [docs/desktop-plugin.md](docs/desktop-plugin.md).
 
-Upgrades keep the install's signing route: `git pull && ./install.sh --from-source` for a build from source (including 2.0 prereleases signed with an Apple Development certificate), or the new release's 'Install RemCTL.command' (or `./install.sh`) for the download. The installer refuses a signing change without `--migrate-signing`; do not add that flag unless the user asks to switch, because it means granting Full Disk Access again. From 1.7.1, the first install needs `--adopt-existing-install` once. Then run `doctor`. Run `onboard` again only when `doctor` reports a permission problem. Do not copy or re-sign the host app by hand, and do not reset macOS privacy records as a routine fix. Never grant Full Disk Access, Reminders, or Automation to Terminal, Python, Hermes, Codex, or Claude; only the host needs them.
+Upgrades keep the install's signing route: `git pull && ./install.sh --from-source` for a build from source (including 2.0 prereleases signed with an Apple Development certificate), or the new release's 'Install RemCTL' (or `./install.sh`) for the download. The installer refuses a signing change without `--migrate-signing`; do not add that flag unless the user asks to switch, because it means granting Full Disk Access again. From 1.7.1, the installer asks in Terminal before replacing the old files; without a terminal it needs `--adopt-existing-install` once. Then run `doctor`. Run `onboard` again only when `doctor` reports a permission problem. Do not copy or re-sign the host app by hand, and do not reset macOS privacy records as a routine fix. Never grant Full Disk Access, Reminders, or Automation to Terminal, Python, Hermes, Codex, or Claude; only the host needs them.
 
 ## Rules that always apply
 

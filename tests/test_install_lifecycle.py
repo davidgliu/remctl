@@ -580,6 +580,82 @@ class InstallerLifecycleTests(unittest.TestCase):
         self.assertEqual(adopted.returncode, 0)
         self.assert_installed_contract()
 
+    def make_legacy_171_install(self) -> None:
+        """Turn a fresh install into the exact file set RemCTL 1.7.1 left in bin."""
+        scripts = ("remctl", "remctl_runtime.py", "remctl_images.py", "remctl_serialization.py", "remctl_smart_lists.py")
+        try:
+            sources = {name: subprocess.run(["git", "show", f"v1.7.1:{name}"], cwd=ROOT, check=True,
+                                            capture_output=True).stdout for name in scripts}
+        except (OSError, subprocess.CalledProcessError):
+            self.skipTest("the v1.7.1 tag is not available")
+        self.run_script(INSTALL, "--shell-completions", "none")
+        shutil.rmtree(self.app)
+        self.agent.unlink()
+        kept = set(scripts) | {"remctl-bridge", "remctl-private", "remctl-permissions", "remctl-permissions-icon.png"}
+        for path in sorted(self.bin.iterdir()):
+            if path.name not in kept:
+                shutil.rmtree(path) if path.is_dir() and not path.is_symlink() else path.unlink()
+        for name, data in sources.items():
+            (self.bin / name).write_bytes(data)
+        (self.bin / "remctl").chmod(0o755)
+        completion = subprocess.run([sys.executable, str(self.bin / "remctl"), "completion", "zsh"],
+                                    check=True, capture_output=True).stdout
+        (self.bin / "completions").mkdir()
+        for alias in ("remctl", "rctl", "reminders"):
+            (self.bin / "completions" / f"_{alias}").write_bytes(completion)
+            if alias != "remctl":
+                (self.bin / alias).symlink_to("remctl")
+
+    def run_in_terminal(self, *arguments: str, answer: str, prompt: bytes) -> tuple[int, str]:
+        """Run the installer on a pseudo-terminal and answer its first prompt."""
+        import pty, select
+        master, slave = pty.openpty()
+        process = subprocess.Popen([str(INSTALL), *arguments], cwd=ROOT, env=self.environment,
+                                   stdin=slave, stdout=slave, stderr=slave, close_fds=True)
+        os.close(slave)
+        output, answered = b"", False
+        while True:
+            ready, _, _ = select.select([master], [], [], 120)
+            if not ready:
+                process.kill()
+                break
+            try:
+                chunk = os.read(master, 4096)
+            except OSError:
+                break
+            if not chunk:
+                break
+            output += chunk
+            if not answered and prompt in output:
+                os.write(master, answer.encode() + b"\n")
+                answered = True
+        os.close(master)
+        return process.wait(timeout=120), output.decode(errors="replace")
+
+    def test_exact_171_install_upgrades_after_a_yes_in_terminal(self) -> None:
+        self.make_legacy_171_install()
+        before = sha256(self.bin / "remctl")
+
+        refused = self.run_script(INSTALL, "--shell-completions", "none", check=False)
+        self.assertNotEqual(refused.returncode, 0)
+        self.assertIn("RemCTL 1.7.1 is installed", refused.stdout)
+        self.assertIn("Nothing was changed", refused.stdout)
+        self.assertEqual(sha256(self.bin / "remctl"), before)
+
+        status, output = self.run_in_terminal("--shell-completions", "none", answer="y", prompt=b"Upgrade it?")
+        self.assertEqual(status, 0, output)
+        self.assert_installed_contract()
+
+    def test_unverifiable_old_install_is_left_alone_without_a_terminal(self) -> None:
+        self.make_legacy_171_install()
+        (self.bin / "remctl_images.py").write_text("# edited by hand\n")
+
+        refused = self.run_script(INSTALL, "--shell-completions", "none", check=False)
+        self.assertNotEqual(refused.returncode, 0)
+        self.assertIn("can't verify its files", refused.stdout)
+        self.assertIn("Nothing was changed", refused.stdout)
+        self.assertEqual((self.bin / "remctl_images.py").read_text(), "# edited by hand\n")
+
     def test_failed_rollback_preserves_recovery_evidence(self) -> None:
         self.run_script(INSTALL, "--shell-completions", "none")
         injected = self.environment.copy()

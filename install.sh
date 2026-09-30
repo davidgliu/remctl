@@ -28,7 +28,7 @@ Options:
   --bootstrap                 Create config and start guided setup in an interactive terminal
   --doctor                    Run `remctl doctor` after an authorized upgrade/reinstall
   --dry-run                   Build and verify without publishing or starting the service
-  --adopt-existing-install    Adopt exact 1.7.1 or a reviewed prerelease-host install once
+  --adopt-existing-install    Adopt exact 1.7.1 without asking, or a reviewed prerelease host
   --shell-completions SHELL   Install completions for auto, zsh, bash, fish, or none (default: auto)
   -h, --help                  Show this help text
 
@@ -46,10 +46,11 @@ Line Tools but no Apple account or paid membership. Both include Python and ask
 for an administrator password to install its protected copy under /Library/RemCTL.
 The installer verifies the complete app before replacing the previous generation.
 
-Use --adopt-existing-install only after a normal upgrade refuses an exact 1.7.1
-or reviewed prerelease-host install and you have inspected every existing RemCTL
-path. Keep the same PREFIX and overrides. Never adopt unknown, modified, or
-foreign files.
+In Terminal, the installer offers to upgrade an exact RemCTL 1.7.1 in place, or
+to move an older install's files to the Trash. Use --adopt-existing-install to
+upgrade 1.7.1 without a terminal, or to adopt a 2.0 prerelease host after you
+have inspected every existing RemCTL path. Keep the same PREFIX and overrides.
+Never adopt unknown, modified, or foreign files.
 EOF
 }
 
@@ -754,16 +755,59 @@ for name in generated - {"remctl-permissions-icon.png"}:
     path=os.path.join(root,name); metadata=os.lstat(path)
     valid &= stat.S_ISREG(metadata.st_mode) and not stat.S_ISLNK(metadata.st_mode) and os.access(path,os.X_OK)
     with open(path,"rb") as handle: valid &= handle.read(4) in (b"\xcf\xfa\xed\xfe",b"\xfe\xed\xfa\xcf")
-if generated and adopt != "1": valid=False
-if adopt == "1" and app_contract == "1":
-    # Explicit adoption is a human-reviewed escape hatch for prerelease host
-    # generations. It validates object types here; the app contract is checked
-    # independently before this function is called.
-    valid=all(stat.S_ISREG(os.lstat(os.path.join(root,n)).st_mode) for n in present-{"rctl","reminders"})
-    valid &= all(matches(os.path.join(root,n),{"type":"symlink","target":"remctl"}) for n in present&{"rctl","reminders"})
-if not valid: print("Unmanifested managed paths: " + ", ".join(sorted(present)), file=sys.stderr)
-raise SystemExit(0 if valid else 1)
+if app_contract == "1":
+    if adopt == "1":
+        # Explicit adoption is a human-reviewed escape hatch for prerelease host
+        # generations. It validates object types here; the app contract is checked
+        # independently before this function is called.
+        valid=all(stat.S_ISREG(os.lstat(os.path.join(root,n)).st_mode) for n in present-{"rctl","reminders"})
+        valid &= all(matches(os.path.join(root,n),{"type":"symlink","target":"remctl"}) for n in present&{"rctl","reminders"})
+    elif generated: valid=False
+    if not valid: print("Unmanifested managed paths: " + ", ".join(sorted(present)), file=sys.stderr)
+    raise SystemExit(0 if valid else 1)
+# No host app and no manifest: a 1.x install. Compiled helpers can't be matched
+# by hash, so the caller asks before adopting an exact 1.7.1 (3) and before
+# moving any other old files aside (4). Names go to stdout for that step.
+if valid and (adopt == "1" or not generated): raise SystemExit(0)
+print("\n".join(sorted(present)))
+raise SystemExit(3 if valid else 4)
 PY
+}
+
+# Upgrade a 1.x install that predates ownership manifests. An exact 1.7.1 is
+# adopted in place; unverifiable older files go to the Trash. Both need a yes
+# in Terminal; without one, the installer says what to run and changes nothing.
+resolve_legacy_install() {
+    local status="$1" paths="$2" answer listed new_version
+    listed="$(printf '%s\n' "$paths" | paste -sd ',' - | sed 's/,/, /g')"
+    new_version="$(sed -n 's/^VERSION = "\(.*\)"$/\1/p' "$BIN_STAGE/remctl" | head -1)"
+    if [[ "$status" == "3" ]]; then
+        echo -e "${YELLOW}RemCTL 1.7.1 is installed in $BIN_DIR.${RESET} This replaces it with RemCTL ${new_version:-2}. Your settings stay."
+        [[ "$DRY_RUN" != "1" ]] || { echo "Dry run: it would be upgraded in place."; return 0; }
+        [[ -t 0 && -t 1 ]] || fail "Nothing was changed. Run the installer in Terminal to confirm, or add --adopt-existing-install."
+        read -r -p "Upgrade it? [Y/n] " answer || answer=n
+        [[ -z "$answer" || "$answer" =~ ^[Yy] ]] || fail "Nothing was changed."
+        ADOPT_EXISTING=1
+        return 0
+    fi
+    echo -e "${YELLOW}An older RemCTL is installed in $BIN_DIR, and the installer can't verify its files:${RESET}"
+    echo "  $listed"
+    [[ "$DRY_RUN" != "1" ]] || { echo "Dry run: they would be moved to the Trash."; return 0; }
+    [[ -t 0 && -t 1 ]] || fail "Nothing was changed. Run the installer in Terminal to move these files to the Trash, or move them out of $BIN_DIR yourself."
+    read -r -p "Move them to the Trash and install RemCTL ${new_version:-2}? Your settings stay. [y/N] " answer || answer=n
+    [[ "$answer" =~ ^[Yy] ]] || fail "Nothing was changed."
+    local name target
+    while IFS= read -r name; do
+        [[ -n "$name" ]] || continue
+        target="$BIN_DIR/$name"
+        if [[ -x /usr/bin/trash ]]; then
+            /usr/bin/trash "$target" || fail "Could not move $target to the Trash."
+        else
+            mv "$target" "$HOME/.Trash/$(basename "$name").remctl-$(date +%Y%m%d%H%M%S)" || fail "Could not move $target to the Trash."
+        fi
+    done <<< "$paths"
+    installed_bin_owned "$APP_CONTRACT" >/dev/null || fail "Some old RemCTL files are still in $BIN_DIR."
+    echo "Moved the old files to the Trash."
 }
 
 APP_CONTRACT=0
@@ -774,7 +818,12 @@ if [[ -e "$APP_PATH" || -L "$APP_PATH" ]]; then
     installed_app_owned || fail "Refusing to replace an app that does not match the signed RemCTL contract: $APP_PATH"
     APP_CONTRACT=1
 fi
-installed_bin_owned "$APP_CONTRACT" || fail "Refusing to replace foreign, modified, or unmanifested files in $BIN_DIR. Restore the exact installed generation, move the conflicting paths, or manually review the old install and use --adopt-existing-install once."
+if LEGACY_PATHS="$(installed_bin_owned "$APP_CONTRACT")"; then bin_status=0; else bin_status=$?; fi
+case "$bin_status" in
+    0) ;;
+    3|4) resolve_legacy_install "$bin_status" "$LEGACY_PATHS" ;;
+    *) fail "Nothing was changed: RemCTL's files in $BIN_DIR (listed above) changed since it installed them, or come from an install it can't verify. Move those files out of $BIN_DIR and run the installer again. For a 2.0 prerelease you have reviewed, add --adopt-existing-install once." ;;
+esac
 if [[ "$CAPABILITY_SIMULATION" != "1" ]]; then
     new_signature="$(/usr/bin/codesign -d --verbose=4 -r- "$STAGED_APP" 2>&1)" || fail "Could not inspect the staged host signature."
     new_team="$(printf '%s\n' "$new_signature" | sed -n 's/^TeamIdentifier=//p')"

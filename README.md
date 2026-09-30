@@ -10,7 +10,7 @@ Everything goes through **RemCTL Capability Host**, a small signed app that hold
 
 You need macOS 14 or later with iCloud Reminders turned on. You don't need an Apple developer account, Xcode, or your own copy of Python.
 
-**Download (recommended).** On a Mac with Apple silicon, download `RemCTL-arm64.dmg` from [Releases](https://github.com/viticci/remctl/releases), open it, and double-click 'Install RemCTL.command'. Terminal opens, checks that the app is signed by MacStories and notarized by Apple, installs it, and walks you through permissions.
+**Download (recommended).** On a Mac with Apple silicon, download `RemCTL-arm64.dmg` from [Releases](https://github.com/viticci/remctl/releases), open it, and double-click 'Install RemCTL'. macOS asks whether to open an app downloaded from the internet; click Open. Terminal then checks that RemCTL is signed by MacStories and notarized by Apple, installs it, and walks you through permissions.
 
 **Build it yourself (free).** This is also the route for Intel Macs. Install Apple's Command Line Tools once, then build from this repo:
 
@@ -41,11 +41,11 @@ Find your current setup below. `remctl --version` tells you which version you ha
 
 | You have | Do this |
 | --- | --- |
-| RemCTL 2.0 from the download | Download the new release and run 'Install RemCTL.command' again. |
+| RemCTL 2.0 from the download | Download the new release and open 'Install RemCTL' again. |
 | RemCTL 2.0 you built yourself | `git pull`, then `./install.sh --from-source`. |
 | A 2.0 prerelease installed from `main` with your own Apple Development certificate | `git pull`, then `./install.sh --from-source`. It reuses your certificate, so permissions carry over. |
-| RemCTL 1.7.1 | `git pull`, then `./install.sh --from-source --adopt-existing-install --bootstrap`. |
-| RemCTL 1.7.0 or older | From your old checkout, run `./uninstall.sh --keep-config`. Then `git pull` and install as new. |
+| RemCTL 1.7.1 | Download the release and open 'Install RemCTL', or `git pull` and run `./install.sh --from-source --bootstrap`. The installer recognizes 1.7.1 and asks before replacing it. |
+| RemCTL 1.7.0 or older | From your old checkout, run `./uninstall.sh --keep-config`. Then install as new. |
 
 Updates that keep the same signature keep your permissions. RemCTL 1.x had no Capability Host, so coming from 1.x means granting permissions once to the new app. (You can remove the old grants for Terminal afterwards; RemCTL doesn't need them anymore.)
 
