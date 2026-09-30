@@ -58,7 +58,13 @@ app.ontoolinput = (params) => {
   if (params.arguments?.file)
     emit({ type: "file", file: params.arguments.file });
 };
+// The host's floating composer can report its space as a bottom safe-area inset.
+function applyInsets(context: any) {
+  const bottom = context?.safeAreaInsets?.bottom;
+  if (typeof bottom === "number") document.documentElement.style.setProperty("--host-safe-bottom", `${bottom}px`);
+}
 app.onhostcontextchanged = (context) => {
+  applyInsets(context);
   if (context.theme) applyDocumentTheme(context.theme);
   if (context.styles?.variables)
     applyHostStyleVariables(context.styles.variables);
@@ -68,6 +74,7 @@ export const ready = app
   .connect()
   .then(() => {
     const context = app.getHostContext();
+    applyInsets(context);
     if (context?.theme) applyDocumentTheme(context.theme);
     if (context?.styles?.variables)
       applyHostStyleVariables(context.styles.variables);

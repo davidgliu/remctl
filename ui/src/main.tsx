@@ -44,6 +44,8 @@ import {
   AlertCircle,
   Bell,
   Radio,
+  Info,
+  PanelLeft,
 } from "lucide-react";
 import {
   app,
@@ -60,6 +62,7 @@ import {
 } from "./bridge";
 import {
   ListBadge,
+  listChoices,
   ContextMenu,
   CommandPalette,
   ListAppearance,
@@ -76,10 +79,13 @@ import {
   todaySection,
   systemListVisible,
   pinnedSidebarLists,
+  colorFor,
+  COLORS,
 } from "./reminder-helpers";
 import {TagEditor, AttachmentGallery, SmartListEditor} from "./power";
 import {DueEditor} from "./date-editor";
 import {QuickAdd} from "./quick-add";
+import {Select} from "./pickers";
 import {NotePreview, RichLinks} from "./rich-content";
 import icon from "../../plugins/remctl/assets/icon.png";
 import "./style.css";
@@ -87,17 +93,14 @@ const VIEWS = [
   ["today", "Today", Sun, "blue"],
   ["scheduled", "Scheduled", CalendarDays, "red"],
   ["flagged", "Flagged", Flag, "orange"],
-  ["all", "All", Layers, "gray"],
+  ["all", "All", Layers, "graphite"],
   ["completed", "Completed", CheckCheck, "gray"],
 ] as const;
-const COLORS = [
-  "#54b652",
-  "#e9b92e",
-  "#ef8d32",
-  "#ed5e5e",
-  "#ad72d8",
-  "#5394ed",
-];
+// Apple's system hues for the built-in views, as in Reminders.
+const VIEW_COLORS: Record<string, string> = {
+  today: "#0a7cff", scheduled: "#f0453a", flagged: "#ff9500", all: "#5b5f68",
+  completed: "#8a8d93", assigned: "#30b456", deleted: "#8a8d93",
+};
 const today = () => new Date().toLocaleDateString("en-CA");
 const titleCase = (s: string) =>
   s.replaceAll("_", " ").replace(/\b\w/g, (c) => c.toUpperCase());
@@ -150,14 +153,6 @@ function IconButton({
     </button>
   );
 }
-function colorFor(list: D, index = 0) {
-  const c = list?.color;
-  return typeof c === "string" && /^#[\da-f]{6}$/i.test(c)
-    ? c
-    : typeof c === "object" && c?.hex
-      ? c.hex
-      : COLORS[index % 6];
-}
 function Workspace() {
   const [data, setData] = useState<D>({
       items: [],
@@ -174,7 +169,17 @@ function Workspace() {
       refreshSeconds: 30,
     }),
     [layout, setLayout] = useState("list");
-  const [hostTheme, setHostTheme] = useState("light");
+  // "System" follows whichever changed last: the host's theme or the Mac's
+  // appearance. Some hosts never send a theme change after launch.
+  const [hostTheme, setHostTheme] = useState(() =>
+    window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+  useEffect(() => {
+    const dark = window.matchMedia("(prefers-color-scheme: dark)");
+    const follow = () => setHostTheme(dark.matches ? "dark" : "light");
+    dark.addEventListener("change", follow);
+    return () => dark.removeEventListener("change", follow);
+  }, []);
+  const reportedTheme = useRef<string>(undefined);
   const [loading, setLoading] = useState(true),
     [readFailed, setReadFailed] = useState(false),
     [busy, setBusy] = useState(false),
@@ -197,7 +202,8 @@ function Workspace() {
     [month, setMonth] = useState(new Date()),
     [menu, setMenu] = useState(false),
     [collapsed, setCollapsed] = useState<number[]>([]),
-    [collapsedSections, setCollapsedSections] = useState<string[]>([]);
+    [collapsedSections, setCollapsedSections] = useState<string[]>([]),
+    [collapsedGroups, setCollapsedGroups] = useState<number[]>([]);
   useEffect(() => {
     const wide = window.matchMedia("(min-width: 1101px)");
     const resize = () => setSidebar(wide.matches);
@@ -205,6 +211,18 @@ function Workspace() {
     return () => wide.removeEventListener("change", resize);
   }, []);
   const drafts = useRef(new Map<number, {fields: D; revision: string}>());
+  const layoutKey = (q: D) => q.listId ? `list:${q.listId}` : q.smartId ? `smart:${q.smartId}` : `view:${q.view || "today"}`;
+  // The sandbox may refuse storage; layouts then last for this session only.
+  const savedLayouts = useRef<Record<string, string>>((() => {
+    try { return JSON.parse(localStorage.getItem("remctl-layouts") || "{}"); } catch { return {}; }
+  })());
+  const defaultLayout = useRef("list");
+  const layoutFor = (q: D) => savedLayouts.current[layoutKey(q)] || defaultLayout.current;
+  const chooseLayout = (id: string) => {
+    setLayout(id);
+    savedLayouts.current[layoutKey(queryRef.current)] = id;
+    try { localStorage.setItem("remctl-layouts", JSON.stringify(savedLayouts.current)); } catch {}
+  };
   const selectionAnchor = useRef<number | null>(null);
   const selectionFocus = useRef<number | null>(null);
   const draggingIds = useRef<number[]>([]);
@@ -286,6 +304,7 @@ function Workspace() {
     setDetail(null);
     setSelection([]);
     setSurface("workspace");
+    setLayout(layoutFor(next));
     refresh(next);
   };
   const openDetail = async (item: D) => {
@@ -359,14 +378,16 @@ function Workspace() {
           const preferences = result._meta?.["remctl/settings"];
           if (preferences) {
             setSettings(preferences);
-            setLayout(preferences.layout);
+            defaultLayout.current = preferences.layout || "list";
+            setLayout(layoutFor(queryRef.current));
           }
           if (!initialized.current) {
             initialized.current = true;
             call("read_settings")
               .then((s) => {
                 setSettings(s.values);
-                setLayout(s.values.layout);
+                defaultLayout.current = s.values.layout || "list";
+                setLayout(layoutFor(queryRef.current));
               })
               .catch(report);
             call("workspace_catalog")
@@ -378,7 +399,11 @@ function Workspace() {
           }
         }
         if (event.type === "context") {
-          if (event.context?.theme) setHostTheme(event.context.theme);
+          const theme = event.context?.theme;
+          if (theme && theme !== reportedTheme.current) {
+            reportedTheme.current = theme;
+            setHostTheme(theme);
+          }
           const current = extensions.modelContext?.getCurrent();
           if (current !== undefined) {
             const allItems = (current?.structuredContent?.items as D[]) || [];
@@ -700,14 +725,19 @@ function Workspace() {
         ? "Selected Reminders"
         : currentList?.title ||
           data.smartLists?.find((l: D) => l.id === query.smartId)?.name ||
+          ({ assigned: "Assigned to Me", deleted: "Recently Deleted" } as Record<string, string>)[query.view] ||
           titleCase(query.view || "Reminders");
+  const smartList = data.smartLists?.find((l: D) => l.id === query.smartId);
   const activeColor = currentList
     ? colorFor(currentList, lists.indexOf(currentList))
-    : query.view === "flagged"
-      ? COLORS[2]
-      : query.view === "scheduled"
-        ? COLORS[3]
-        : COLORS[5];
+    : smartList
+      ? colorFor(smartList)
+      : VIEW_COLORS[query.view] || VIEW_COLORS.today;
+  // Each row's check circle takes its own list's color, as in Reminders.
+  const rowColor = (item: D) => {
+    const list = lists.find((l: D) => l.id === item.listId);
+    return list ? colorFor(list, lists.indexOf(list)) : activeColor;
+  };
   const visible = arrangeReminders(
     surface === "selection"
       ? attachedDetails.filter((i: D) => attached.includes(i.id))
@@ -1175,7 +1205,7 @@ function Workspace() {
     ...["list", "columns", "calendar"].map((value) => ({
       label: titleCase(value) + " layout",
       run: () => {
-        setLayout(value);
+        chooseLayout(value);
         setModal(null);
       },
     })),
@@ -1240,6 +1270,7 @@ function Workspace() {
       key={item.id}
       className={
         "task-row " +
+        (item.depth ? "subtask " : "") +
         (selection.includes(item.id) ? "selected " : "") +
         (item.completed ? "completed " : "") +
         (detail?.id === item.id ? "inspected" : "")
@@ -1249,7 +1280,7 @@ function Workspace() {
       data-reminder-id={item.id}
       data-drop-kind="reminder"
       data-drop-id={item.id}
-      style={{ paddingLeft: 12 + (item.depth || 0) * 22 }}
+      style={{ "--depth": item.depth || 0, "--row-color": rowColor(item) } as React.CSSProperties}
       aria-selected={selection.includes(item.id)}
       draggable={false}
       onPointerDown={(e) => beginReminderDrag(e, item)}
@@ -1279,31 +1310,6 @@ function Workspace() {
       >
         {item.completed && <Check size={12} />}
       </button>
-      {item.subtaskCount > 0 && (
-        <button
-          className="subtask-disclosure"
-          aria-label={
-            (collapsed.includes(item.id)
-              ? "Expand subtasks: "
-              : "Collapse subtasks: ") + item.title
-          }
-          aria-expanded={!collapsed.includes(item.id)}
-          onClick={(e) => {
-            e.stopPropagation();
-            setCollapsed((old) =>
-              old.includes(item.id)
-                ? old.filter((id) => id !== item.id)
-                : [...old, item.id],
-            );
-          }}
-        >
-          {collapsed.includes(item.id) ? (
-            <ChevronRight size={13} />
-          ) : (
-            <ChevronDown size={13} />
-          )}
-        </button>
-      )}
       <div className="task-copy">
         <span className="task-title">
           {item.priority === "high" && <b className="priority">!!! </b>}
@@ -1341,10 +1347,19 @@ function Workspace() {
             </button>
           ))}
           {item.subtaskCount > 0 && (
-            <span>
+            <button
+              className="subtask-count"
+              aria-expanded={!collapsed.includes(item.id)}
+              aria-label={(collapsed.includes(item.id) ? "Show " : "Hide ") + item.subtaskCount + " subtasks: " + item.title}
+              onClick={(e) => {
+                e.stopPropagation();
+                setCollapsed((old) => old.includes(item.id) ? old.filter((id) => id !== item.id) : [...old, item.id]);
+              }}
+            >
               <Layers size={11} />
               {item.subtaskCount} {item.subtaskCount === 1 ? "subtask" : "subtasks"}
-            </span>
+              {collapsed.includes(item.id) ? <ChevronRight size={11} /> : <ChevronDown size={11} />}
+            </button>
           )}
           {item.attachments?.length > 0 && <Paperclip size={12} />}{" "}
           {item.recurrence && <span title={recurrenceText(item.recurrence)}><Repeat2 size={12} />{titleCase(item.recurrence.frequency || "Repeats")}</span>}
@@ -1359,7 +1374,7 @@ function Workspace() {
       )}
       {item.flagged && <Flag className="flag" size={14} fill="currentColor" />}
       <button className="row-more" aria-label={"Details: " + item.title}>
-        <ChevronRight size={15} />
+        <Info size={15} />
       </button>
     </div>
   );
@@ -1391,42 +1406,18 @@ function Workspace() {
       {internalDrag.preview && <div className="drag-preview" style={{left: internalDrag.preview.x + 14, top: internalDrag.preview.y + 14}}><Layers size={14} />{internalDrag.preview.label}</div>}
       {sidebar && surface !== "file" && surface !== "inline" && (
         <aside className="sidebar">
+          <div className="sidebar-panel">
           <div className="brand">
-            <img src={icon} alt="RemCTL" />
+            <img src={icon} alt="" />
             <span>RemCTL</span>
-            <button className="sidebar-close" aria-label="Close sidebar" onClick={() => setSidebar(false)}><X size={16}/></button>
+            <button className="sidebar-close" aria-label="Close sidebar" onClick={() => setSidebar(false)}><X size={15}/></button>
             <IconButton
               label="Command palette"
               onClick={() => setModal({ kind: "commands" })}
             >
-              <Command size={15} />
+              <Command size={14} />
             </IconButton>
           </div>
-          <div className="search-box">
-            <Search size={15} />
-            <input
-              ref={searchRef}
-              aria-label="Search reminders"
-              placeholder="Search"
-              value={search}
-              onChange={(e) => {
-                const value = e.target.value;
-                setSearch(value);
-                setSurface("workspace");
-                const next = { view: "all", query: value };
-                setQuery(next);
-                refresh(next);
-              }}
-            />
-            <kbd>⌘ F</kbd>
-          </div>
-          {attached.length > 0 && (
-            <button className="list-item" onClick={() => {
-              setSurface("selection"); setDetail(null); setSelection([]);
-            }}>
-              <Paperclip size={17} /><span>Selected Reminders</span><small>{attached.length}</small>
-            </button>
-          )}
           <div className="sidebar-scroll">
           <div className="smart-grid" aria-label="Pinned lists and smart lists">
             {VIEWS.filter(([id]) => systemListVisible(data.smartLists || [], id)).map(([id, label, Icon, color]) => (
@@ -1446,7 +1437,7 @@ function Workspace() {
                   </span>
                   {id !== "completed" && <strong>{data.counts?.[id] ?? "—"}</strong>}
                 </span>
-                <span>{label}</span>
+                <span className="smart-title">{label}</span>
               </button>
             ))}
             {pinnedSidebarLists(lists, data.smartLists || []).map((list: D) => {
@@ -1468,33 +1459,52 @@ function Workspace() {
             })}
           </div>
           <nav>
+            {attached.length > 0 && (
+              <button className={"nav-row " + (surface === "selection" ? "chosen" : "")} onClick={() => {
+                setSurface("selection"); setDetail(null); setSelection([]);
+              }}>
+                <span className="nav-icon"><Paperclip size={15} /></span><span>Selected Reminders</span><small>{attached.length}</small>
+              </button>
+            )}
             <button
               className={
                 "nav-row " + (query.view === "assigned" ? "chosen" : "")
               }
               onClick={() => navigate({ view: "assigned" })}
             >
-              <UserRound size={16} />
+              <span className="nav-icon"><UserRound size={15} /></span>
               <span>Assigned to Me</span>
             </button>
-            {VIEWS.filter(([id]) => !systemListVisible(data.smartLists || [], id)).map(([id, label, Icon]) => <button key={id} className={"nav-row " + (query.view === id ? "chosen" : "")} onClick={() => navigate({view: id})}><Icon size={16}/><span>{label}</span></button>)}
+            {VIEWS.filter(([id]) => !systemListVisible(data.smartLists || [], id)).map(([id, label, Icon]) => <button key={id} className={"nav-row " + (query.view === id ? "chosen" : "")} onClick={() => navigate({view: id})}><span className="nav-icon"><Icon size={15}/></span><span>{label}</span></button>)}
             <div className="nav-label">
-              My Lists
+              <span>My Lists</span>
               <IconButton
                 label="New list"
                 onClick={() => openAction("create_list")}
               >
-                <Plus size={14} />
+                <Plus size={13} />
               </IconButton>
             </div>
             {lists
               .filter((l: D) => !l.parentListId && (l.isGroup || !l.pinned))
-              .map((list: D, index: number) => (
+              .map((list: D, index: number) => {
+                const folded = collapsedGroups.includes(list.id);
+                return (
                 <React.Fragment key={list.id}>
-                  <div className="sidebar-list-row">
+                  <div className={"sidebar-list-row " + (list.isGroup ? "group-row" : "")}>
+                  {list.isGroup && (
+                    <button
+                      className="group-disclosure"
+                      aria-label={(folded ? "Expand " : "Collapse ") + list.title}
+                      aria-expanded={!folded}
+                      onClick={() => setCollapsedGroups((old) => folded ? old.filter((id) => id !== list.id) : [...old, list.id])}
+                    >
+                      {folded ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
+                    </button>
+                  )}
                   <button
                     className={
-                      "nav-row " + (query.listId === list.id ? "chosen" : "")
+                      "nav-row " + (list.isGroup ? "group " : "") + (query.listId === list.id ? "chosen" : "")
                     }
                     onClick={() => navigate({ view: "list", listId: list.id })}
                     onContextMenu={(e) => showContext(e, listActions(list))}
@@ -1513,11 +1523,11 @@ function Workspace() {
                   >
                     <ListBadge list={list} color={colorFor(list, index)} />
                     <span>{list.title}</span>
-                    <small>{list.count || ""}</small>
+                    <small>{list.isGroup ? "" : list.count || ""}</small>
                   </button>
                   {pinButton(list)}
                   </div>
-                  {list.isGroup &&
+                  {list.isGroup && !folded &&
                     lists
                       .filter((l: D) => l.parentListId === list.id && !l.pinned)
                       .map((child: D, j: number) => (
@@ -1554,8 +1564,10 @@ function Workspace() {
                         </div>
                       ))}
                 </React.Fragment>
-              ))}
-            <div className="nav-label">Smart Lists<button aria-label="New smart list" disabled={!settings.advancedFeatures} onClick={()=>openAction("manage_smart_list_create")}><Plus size={14}/></button></div>
+              );})}
+            {data.smartLists?.some((l: D) => l.kind === "custom" && !l.pinned) || settings.advancedFeatures ? (
+              <div className="nav-label"><span>Smart Lists</span><IconButton label="New smart list" disabled={!settings.advancedFeatures} onClick={()=>openAction("manage_smart_list_create")}><Plus size={13}/></IconButton></div>
+            ) : null}
             {data.smartLists
               ?.filter((l: D) => l.kind === "custom" && !l.pinned)
               .map((l: D) => (
@@ -1573,27 +1585,26 @@ function Workspace() {
                 {pinButton(l, true)}
                 </div>
               ))}
+            <button
+              className={"nav-row trash-row " + (query.view === "deleted" ? "chosen" : "")}
+              onClick={() => navigate({ view: "deleted" })}
+            >
+              <span className="nav-icon"><Trash2 size={15} /></span>
+              <span>Recently Deleted</span>
+            </button>
           </nav>
           </div>
           <div className="sidebar-footer">
-            <button
-              className="nav-row"
-              onClick={() => navigate({ view: "deleted" })}
-            >
-              <Trash2 size={14} />
-              <span>Recently Deleted</span>
+            <button className="add-list" onClick={() => openAction("create_list")}>
+              <Plus size={15} /> Add List
             </button>
-            <div className="footer-tools">
-              <button onClick={() => setModal({ kind: "commands" })}>
-                <Plus size={15} /> Add list or group
-              </button>
-              <IconButton
-                label="Settings"
-                onClick={() => setModal({ kind: "settings" })}
-              >
-                <Settings2 size={16} />
-              </IconButton>
-            </div>
+            <IconButton
+              label="Settings"
+              onClick={() => setModal({ kind: "settings" })}
+            >
+              <Settings2 size={15} />
+            </IconButton>
+          </div>
           </div>
         </aside>
       )}
@@ -1605,18 +1616,11 @@ function Workspace() {
               label="Toggle sidebar"
               onClick={() => setSidebar(!sidebar)}
             >
-              <PanelRight size={17} />
+              <PanelLeft size={16} />
             </IconButton>
-            <span className="breadcrumb">
-              {surface === "file"
-                ? file?.name
-                : currentList
-                  ? "My Lists"
-                  : "Reminders"}
-            </span>
           </div>
           <div className="toolbar-right">
-            <div className="segmented">
+            <div className="toolbar-group segmented" role="group" aria-label="Layout">
               {[
                 ["list", List],
                 ["columns", Columns3],
@@ -1626,28 +1630,49 @@ function Workspace() {
                   key={id}
                   label={titleCase(id) + " layout"}
                   active={layout === id}
-                  onClick={() => setLayout(id)}
+                  onClick={() => chooseLayout(id)}
                 >
                   <Icon size={15} />
                 </IconButton>
               ))}
             </div>
-            <IconButton
-              label="Refresh"
-              disabled={loading}
-              onClick={() => refresh()}
-            >
-              <RefreshCw size={15} className={loading ? "spinning" : ""} />
-            </IconButton>
-            <IconButton label="More actions" onClick={() => setMenu(!menu)}>
-              <MoreHorizontal size={19} />
-            </IconButton>
+            <div className="toolbar-group">
+              <IconButton
+                label="Refresh"
+                disabled={loading}
+                onClick={() => refresh()}
+              >
+                <RefreshCw size={14} className={loading ? "spinning" : ""} />
+              </IconButton>
+              <IconButton label="More actions" active={menu} onClick={() => setMenu(!menu)}>
+                <MoreHorizontal size={17} />
+              </IconButton>
+            </div>
+            <label className="toolbar-search">
+              <Search size={14} />
+              <input
+                ref={searchRef}
+                aria-label="Search reminders"
+                placeholder="Search"
+                value={search}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  setSearch(value);
+                  setSurface("workspace");
+                  const next = { view: "all", query: value };
+                  setQuery(next);
+                  refresh(next);
+                }}
+              />
+              <kbd>⌘F</kbd>
+            </label>
             <button
               className="new-button"
+              aria-label="New Reminder"
               onClick={() => openQuickAdd()}
             >
-              <Plus size={16} />
-              New Reminder
+              <Plus size={15} />
+              <span>New Reminder</span>
             </button>
           </div>
         </header>}
@@ -1725,8 +1750,16 @@ function Workspace() {
           <div className="main-body">
             <div className={`collection layout-${layout}`}>
               <div className="collection-heading">
-                <div>
-                  <div className="eyebrow">
+                <div className="heading-main">
+                  <h1>{heading}</h1>
+                  <span className="heading-count" aria-label="Reminder count">
+                    {surface === "selection"
+                      ? visible.length
+                      : (data.total ?? (loading || readFailed ? "—" : visible.length))}
+                  </span>
+                </div>
+                <div className="heading-sub">
+                  <span className="heading-subtitle">
                     {query.view === "today"
                       ? new Date().toLocaleDateString(undefined, {
                           weekday: "long",
@@ -1734,50 +1767,46 @@ function Workspace() {
                           day: "numeric",
                         })
                       : surface === "selection"
-                        ? "Conversation context"
+                        ? "Shared with this conversation"
                         : currentList?.isGroceries
-                          ? "GROCERIES"
+                          ? "Groceries"
                           : query.view === "completed"
-                            ? "NICELY DONE"
-                            : "YOUR REMINDERS"}
-                  </div>
-                  <h1>
-                    {heading}
-                    <span>
-                      {surface === "selection"
-                        ? visible.length
-                        : (data.total ?? (loading || readFailed ? "—" : visible.length))}
-                    </span>
-                  </h1>
-                </div>
-                <div className="heading-actions">
-                  <select
-                    aria-label="Sort reminders"
-                    value={query.sort || "manual"}
-                    onChange={(e) => {
-                      const next = { ...query, sort: e.target.value };
-                      setQuery(next);
-                      refresh(next);
-                    }}
-                  >
-                    <option value="manual">Manual</option>
-                    <option value="due">Due date</option>
-                    <option value="priority">Priority</option>
-                    <option value="title">Title</option>
-                  </select>
-                  {currentList && (
-                    <IconButton
-                      label="New section"
-                      onClick={() =>
-                        openAction("manage_section_create", {
-                          list_id: currentList.id,
-                          private: true,
-                        })
-                      }
+                            ? "Nicely done."
+                            : query.view === "deleted"
+                              ? "Deleted reminders stay here for up to 30 days."
+                              : query.query
+                                ? `Results for “${query.query}”`
+                                : ""}
+                  </span>
+                  <div className="heading-actions">
+                    <Select
+                      aria-label="Sort reminders"
+                      value={query.sort || "manual"}
+                      onChange={(e) => {
+                        const next = { ...query, sort: e.target.value };
+                        setQuery(next);
+                        refresh(next);
+                      }}
                     >
-                      <Columns3 size={16} />
-                    </IconButton>
-                  )}
+                      <option value="manual">Manual</option>
+                      <option value="due">Due date</option>
+                      <option value="priority">Priority</option>
+                      <option value="title">Title</option>
+                    </Select>
+                    {currentList && (
+                      <IconButton
+                        label="New section"
+                        onClick={() =>
+                          openAction("manage_section_create", {
+                            list_id: currentList.id,
+                            private: true,
+                          })
+                        }
+                      >
+                        <Columns3 size={15} />
+                      </IconButton>
+                    )}
+                  </div>
                 </div>
               </div>
               {selection.length > 1 && (
@@ -2023,10 +2052,11 @@ function Workspace() {
                         }}
                       >
                         <i style={{ background: COLORS[index % 6] }} />
-                        {name}
+                        <span>{name}</span>
                         <small>{items.length}</small>
                       </div>
                       {items.map(row)}
+                      {!items.length && <div className="lane-empty">No reminders</div>}
                     </section>
                   ))}
                 </div>
@@ -2237,7 +2267,10 @@ function Workspace() {
                 run(async () => {
                   const value = await call("update_settings", { set });
                   setSettings(value.values);
-                  if (set.layout) setLayout(set.layout);
+                  if (set.layout) {
+                    defaultLayout.current = set.layout;
+                    setLayout(layoutFor(query));
+                  }
                   if ("showCompleted" in set) {
                     const next = {
                       ...query,
@@ -2452,25 +2485,18 @@ function Settings({
       {Object.entries(schema).map(([key, s]: [string, any]) => (
         <label key={key} className="setting-row">
           <span>
-            {s.title}
+            {key === "layout" ? "Default layout" : s.title}
+            {key === "layout" && <small>Each list remembers the layout you pick for it.</small>}
             {key === "advancedFeatures" && (
               <small>Uses private ReminderKit features.</small>
             )}
           </span>
           {key === "defaultList" ? (
-            <select
+            <Select
               value={values[key]}
               onChange={(e) => save({ defaultList: e.target.value })}
-            >
-              <option value="">System default</option>
-              {lists
-                .filter((l) => !l.isGroup)
-                .map((l) => (
-                  <option key={l.id} value={String(l.id)}>
-                    {l.title}
-                  </option>
-                ))}
-            </select>
+              options={[{ value: "", label: "System default", text: "System default" }, ...listChoices(lists)]}
+            />
           ) : s.type === "boolean" ? (
             <input
               type="checkbox"
@@ -2479,7 +2505,7 @@ function Settings({
               onChange={(e) => save({ [key]: e.target.checked })}
             />
           ) : s.enum ? (
-            <select
+            <Select
               value={values[key]}
               onChange={(e) => save({ [key]: e.target.value })}
             >
@@ -2488,7 +2514,18 @@ function Settings({
                   {titleCase(v)}
                 </option>
               ))}
-            </select>
+            </Select>
+          ) : key === "refreshSeconds" ? (
+            <Select
+              value={values[key]}
+              onChange={(e) => save({ [key]: Number(e.target.value) })}
+            >
+              {[...new Set([15, 30, 60, 120, 300, Number(values[key]) || 30])].sort((a, b) => a - b).map((n) => (
+                <option key={n} value={n}>
+                  {n < 60 ? `Every ${n} seconds` : n === 60 ? "Every minute" : `Every ${n / 60} minutes`}
+                </option>
+              ))}
+            </Select>
           ) : (
             <input
               type={s.type === "integer" ? "number" : "text"}
@@ -2591,7 +2628,7 @@ function ActionForm({
           ))}
         </div>
       ) : optionsFor(key) ? (
-        <select
+        <Select
           id={`action-${key}`}
           value={values[key] ?? ""}
           required={tool.inputSchema.required?.includes(key)}
@@ -2613,7 +2650,7 @@ function ActionForm({
               {v.title}
             </option>
           ))}
-        </select>
+        </Select>
       ) : s.type === "boolean" ? (
         <input
           id={`action-${key}`}
@@ -2622,7 +2659,7 @@ function ActionForm({
           onChange={(e) => setValues({ ...values, [key]: e.target.checked })}
         />
       ) : s.enum ? (
-        <select
+        <Select
           id={`action-${key}`}
           value={values[key] ?? ""}
           onChange={(e) => setValues({ ...values, [key]: e.target.value })}
@@ -2633,7 +2670,7 @@ function ActionForm({
               {titleCase(v)}
             </option>
           ))}
-        </select>
+        </Select>
       ) : s.type === "array" || key === "notes" ? (
         <textarea
           id={`action-${key}`}
@@ -2970,25 +3007,16 @@ function Inspector({
               <label>
                 <List size={16} />
                 <span>List</span>
-                <select
+                <Select
                   value={value("list_id", item.listId || "")}
                   onChange={(e) => set("list_id", Number(e.target.value))}
-                >
-                  {!lists.some((l: D) => l.id === item.listId) && (
-                    <option value={item.listId}>
-                      {item.list || "Unavailable list"}
-                    </option>
-                  )}
-                  {lists
-                    .filter((l: D) => !l.isGroup)
-                    .map((l: D) => (
-                      <option key={l.id} value={l.id}>
-                        {l.title}
-                      </option>
-                    ))}
-                </select>
+                  options={[
+                    ...(!lists.some((l: D) => l.id === item.listId) ? [{ value: String(item.listId), label: item.list || "Unavailable list", text: item.list || "" }] : []),
+                    ...listChoices(lists),
+                  ]}
+                />
               </label>
-              <DueEditor value={value("due", item.dueDate?.replace("T", " ").slice(0, item.allDay ? 10 : 16) || "")} change={v => set("due", v)}/>
+              <DueEditor value={value("due", item.dueDate?.replace("T", " ").slice(0, item.allDay ? 10 : 16) || "")} change={v => set("due", v)} weekStartsOn={settings.weekStartsOn}/>
               <label>
                 <Flag size={16} />
                 <span>Flagged</span>
@@ -3001,27 +3029,41 @@ function Inspector({
               <label>
                 <span className="priority-icon">!</span>
                 <span>Priority</span>
-                <select
+                <Select
                   value={value("priority", item.priority || "none")}
                   onChange={(e) => set("priority", e.target.value)}
                 >
                   {["none", "low", "medium", "high"].map((p) => (
-                    <option key={p}>{p}</option>
+                    <option key={p} value={p}>{titleCase(p)}</option>
                   ))}
-                </select>
+                </Select>
               </label>
               <label>
                 <Repeat2 size={16} />
                 <span>Repeat</span>
                 <input
                   aria-label="Repeat rule"
-                  list="repeat-presets"
                   placeholder={
                     item.recurrence ? "Repeats · edit rule" : "Never"
                   }
                   value={value("recurrence", recurrenceText(item.recurrence))}
                   onChange={(e) => set("recurrence", e.target.value)}
                 />
+                <Select
+                  variant="icon"
+                  aria-label="Repeat presets"
+                  value={value("recurrence", recurrenceText(item.recurrence))}
+                  onChange={(e) => set("recurrence", e.target.value)}
+                >
+                  <option value="">Never</option>
+                  <option value="daily">Every day</option>
+                  <option value="weekly mon,tue,wed,thu,fri">Every weekday</option>
+                  <option value="weekly">Every week</option>
+                  <option value="weekly x2">Every two weeks</option>
+                  <option value="monthly">Every month</option>
+                  <option value="monthly last-fri">Last Friday of the month</option>
+                  <option value="yearly">Every year</option>
+                </Select>
               </label>
               <label>
                 <Link2 size={16} />
@@ -3039,7 +3081,7 @@ function Inspector({
               <label>
                 <Columns3 size={16} />
                 <span>Section</span>
-                <select
+                <Select
                   disabled={!settings.advancedFeatures}
                   value={value(
                     "section_id",
@@ -3061,12 +3103,12 @@ function Inspector({
                         {s.title}
                       </option>
                     ))}
-                </select>
+                </Select>
               </label>
               <label>
                 <UserRound size={16} />
                 <span>Assigned</span>
-                <select
+                <Select
                   disabled={!settings.advancedFeatures}
                   value={value(
                     "assign",
@@ -3080,7 +3122,7 @@ function Inspector({
                       {s.name}
                     </option>
                   ))}
-                </select>
+                </Select>
               </label>
               <label>
                 <Clock size={16} />
@@ -3097,7 +3139,6 @@ function Inspector({
                 />
               </label>
             </div>
-            <datalist id="repeat-presets">{["daily","weekly","weekly mon,wed,fri","monthly","monthly last-fri","yearly","clear"].map(rule=><option value={rule} key={rule}/>)}</datalist>
             {lists.find((l:D)=>l.id===item.listId)?.isGroceries && <button className="text-action" disabled={busy||!settings.advancedFeatures} onClick={()=>run(async()=>{await mutate("update_reminder",{reminder_id:item.id,grocery:true,private:true},item.revision);await reload();})}>Categorize grocery item</button>}
             <button className="disclosure" onClick={() => setMore(!more)}>
               <MapPin size={15} />
@@ -3134,14 +3175,14 @@ function Inspector({
                 </label>
                 <label>
                   <span>Trigger</span>
-                  <select
+                  <Select
                     disabled={!settings.advancedFeatures}
                     value={value("proximity", location.proximity || "arriving")}
                     onChange={(e) => set("proximity", e.target.value)}
                   >
-                    <option>arriving</option>
-                    <option>leaving</option>
-                  </select>
+                    <option value="arriving">Arriving</option>
+                    <option value="leaving">Leaving</option>
+                  </Select>
                 </label>
                 <label>
                   <span>Radius</span>
@@ -3229,8 +3270,8 @@ function Inspector({
               </form>
             </div>
             <label className="attachment-picker">
-              <span>Add images</span>
               <Paperclip size={14} />
+              <span>Add images</span>
               <input
                 aria-label="Add images"
                 type="file"
@@ -3396,7 +3437,7 @@ function FileView({
     <div className="file-view">
       <div className="collection-heading">
         <div>
-          <div className="eyebrow">REMCTL DOCUMENT</div>
+          <div className="eyebrow">RemCTL document</div>
           <h1>{file.name}</h1>
         </div>
         <div>

@@ -1,6 +1,8 @@
 import React, {useEffect, useRef, useState} from "react";
 import {CalendarDays, Flag, List, Plus, X, AlignLeft, AlertCircle} from "lucide-react";
 import {DueEditor} from "./date-editor";
+import {Select} from "./pickers";
+import {listChoices} from "./interactions";
 import type {RecordData as D} from "./bridge";
 
 /** A preserved draft, placed above the host's bottom conversation composer. */
@@ -32,15 +34,14 @@ export function QuickAdd({draft, update, lists, busy, error, close, save}: {
           else if (!e.shiftKey && document.activeElement === controls.at(-1)) {e.preventDefault(); controls[0]?.focus();}
         }
       }}>
-      <div className="capture-heading"><span>NEW REMINDER</span><button type="button" aria-label="Close quick add" disabled={busy} onClick={close}><X size={17}/></button></div>
+      <div className="capture-heading"><span>New Reminder</span><button type="button" aria-label="Close quick add" disabled={busy} onClick={close}><X size={17}/></button></div>
       <div className="capture-title"><span className="capture-circle"/><input ref={title} aria-label="New reminder title" placeholder="What do you need to do?" autoComplete="off" maxLength={1024} value={draft.title || ""} disabled={busy} onChange={e=>set("title",e.target.value)}/></div>
       {notes && <textarea className="capture-notes" aria-label="Reminder notes" placeholder="Add a note…" rows={3} maxLength={16384} value={draft.notes || ""} disabled={busy} onChange={e=>set("notes",e.target.value)}/>}
       <div className="capture-chips">
-        <label className="capture-chip capture-list"><List size={14}/><select aria-label="Reminder list" disabled={busy || Boolean(draft.parent_id)} value={draft.list_id || draft.list || ""} onChange={e=>update({...draft,list_id:e.target.value ? Number(e.target.value) : undefined,list:undefined,section_id:undefined,section:undefined})}>
-          <option value="">Default list</option>{draft.list && !lists.some(l=>l.title===draft.list) && <option value={draft.list}>{draft.list}</option>}{lists.filter(l=>!l.isGroup).map(l=><option key={l.id} value={l.id}>{l.title}</option>)}
-        </select></label>
+        <label className="capture-chip capture-list"><Select aria-label="Reminder list" disabled={busy || Boolean(draft.parent_id)} value={draft.list_id || draft.list || ""} onChange={e=>update({...draft,list_id:e.target.value ? Number(e.target.value) : undefined,list:undefined,section_id:undefined,section:undefined})}
+          options={[{value: "", label: "Default list", text: "Default list", icon: <List size={14}/>}, ...(draft.list && !lists.some(l=>l.title===draft.list) ? [{value: draft.list, label: draft.list, text: draft.list}] : []), ...listChoices(lists)]}/></label>
         <button type="button" className={"capture-chip " + (draft.due ? "chosen" : "")} aria-expanded={dates} onClick={()=>setDates(!dates)} disabled={busy}><CalendarDays size={14}/>{dateLabel}</button>
-        <label className={"capture-chip " + (draft.priority && draft.priority !== "none" ? "chosen" : "")}><span className="capture-priority">!</span><select aria-label="Reminder priority" disabled={busy} value={draft.priority || "none"} onChange={e=>set("priority",e.target.value)}><option value="none">Priority</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select></label>
+        <label className={"capture-chip " + (draft.priority && draft.priority !== "none" ? "chosen" : "")}><span className="capture-priority">!</span><Select aria-label="Reminder priority" disabled={busy} value={draft.priority || "none"} onChange={e=>set("priority",e.target.value)}><option value="none">Priority</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></Select></label>
         <button type="button" className={"capture-chip capture-icon " + (draft.flagged ? "flagged" : "")} aria-label="Flag reminder" aria-pressed={Boolean(draft.flagged)} disabled={busy} onClick={()=>set("flagged",!draft.flagged)}><Flag size={15} fill={draft.flagged ? "currentColor" : "none"}/></button>
         <button type="button" className="capture-chip capture-icon" aria-label="Add notes" aria-expanded={notes} disabled={busy} onClick={()=>setNotes(!notes)}><AlignLeft size={15}/></button>
       </div>
