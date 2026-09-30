@@ -10,7 +10,7 @@ Everything goes through **RemCTL Capability Host**, a small signed app that hold
 
 You need macOS 14 or later with iCloud Reminders turned on. You don't need an Apple developer account, Xcode, or your own copy of Python.
 
-**Download (recommended).** On a Mac with Apple silicon, download `RemCTL-arm64.dmg` from [Releases](https://github.com/viticci/remctl/releases), open it, and double-click 'Install RemCTL'. macOS asks whether to open an app downloaded from the internet; click Open. Terminal then checks that RemCTL is signed by MacStories and notarized by Apple, installs it, and walks you through permissions.
+**Download (recommended).** On a Mac with Apple silicon, download `RemCTL-arm64.dmg` from [Releases](https://github.com/viticci/remctl/releases), open it, and double-click 'Install RemCTL'. macOS asks whether to open an app downloaded from the internet; click Open. Terminal then checks that RemCTL is signed by MacStories and notarized by Apple, installs it, and walks you through permissions. The installer puts RemCTL Capability Host in `~/Applications` and keeps it running in the background, so you never open it yourself.
 
 **Build it yourself (free).** This is also the route for Intel Macs. Install Apple's Command Line Tools once, then build from this repo:
 

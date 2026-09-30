@@ -21,6 +21,10 @@ You don't need an Apple account, a developer membership, Homebrew, or your own P
 
 Download `RemCTL-arm64.dmg` from [Releases](https://github.com/viticci/remctl/releases), open it, and double-click 'Install RemCTL'. macOS asks whether to open an app downloaded from the internet; click Open, and Terminal runs the installer. The download is for Macs with Apple silicon. On an Intel Mac, [build it yourself](#build-it-yourself); that route is designed for Intel too, but it hasn't been tested on one yet.
 
+The installer copies 'RemCTL Capability Host' to `~/Applications` and starts it in the background. You don't open it yourself: it's the app that holds RemCTL's permissions. macOS shows a notice that software from "Federico Viticci" can run in the background; that's the host, and it's expected. When the installer finishes, you can eject the disk image and delete it.
+
+If macOS says 'Install RemCTL.command' can't be opened, you have the 2.0.0 or 2.0.1 disk image. Download the latest release, or run `bash "/Volumes/RemCTL/Install RemCTL.command"` in Terminal.
+
 From a checkout, this does the same thing:
 
 ```bash
