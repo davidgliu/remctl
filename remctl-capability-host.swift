@@ -121,8 +121,10 @@ private func resourceText(_ name: String) -> String? {
 // A portable release carries its interpreter and an exact manifest. Installation
 // copies it to a content-addressed root-owned directory before the host uses it.
 private func installPackagedPython(host: VerifiedHost) throws {
-    guard geteuid() == 0 else {
-        throw NSError(domain: "RemCTL", code: 77, userInfo: [NSLocalizedDescriptionKey: "Installing the protected Python runtime requires administrator authorization."])
+    func requireAdministrator() throws {
+        guard geteuid() == 0 else {
+            throw NSError(domain: "RemCTL", code: 77, userInfo: [NSLocalizedDescriptionKey: "Installing the protected Python runtime requires administrator authorization."])
+        }
     }
     let fm = FileManager.default
     let app = URL(fileURLWithPath: host.appPath)
@@ -174,6 +176,7 @@ private func installPackagedPython(host: VerifiedHost) throws {
     // Every ancestor is fixed, root-owned and unwritable by ordinary users.
     for path in ["/Library", "/Library/RemCTL", "/Library/RemCTL/Python"] {
         if !fm.fileExists(atPath: path) {
+            try requireAdministrator()
             try fm.createDirectory(atPath: path, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o755])
         }
         var metadata = stat()
@@ -188,6 +191,7 @@ private func installPackagedPython(host: VerifiedHost) throws {
         print("Protected Python runtime already installed.")
         return
     }
+    try requireAdministrator()
     let staging = destination.deletingLastPathComponent().appendingPathComponent(".stage-\(UUID().uuidString)")
     defer { try? fm.removeItem(at: staging) }
     try fm.copyItem(at: source, to: staging)
@@ -2330,7 +2334,11 @@ guard let verifiedHost = verifiedRunningHost() else { exit(65) }
 
 if arguments == ["--install-python-runtime"] {
     do { try installPackagedPython(host: verifiedHost); exit(0) }
-    catch { fputs("RemCTL runtime installation failed: \(error.localizedDescription)\n", stderr); exit(77) }
+    catch {
+        fputs("RemCTL runtime installation failed: \(error.localizedDescription)\n", stderr)
+        let failure = error as NSError
+        exit(failure.domain == "RemCTL" && failure.code == 77 ? 77 : 65)
+    }
 }
 
 #if REMCTL_TESTING

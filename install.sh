@@ -141,7 +141,15 @@ if [[ -n "$PREBUILT_APP" ]]; then
     if [[ "$DRY_RUN" == "1" || "$SKIP_LAUNCHSERVICES" == "1" ]]; then
         CAPABILITY_PYTHON="$PREBUILT_APP/Contents/Resources/Python/bin/python3.13"
     else
-        /usr/bin/sudo "$PREBUILT_APP/Contents/MacOS/RemCTL Capability Host" --install-python-runtime
+        # The signed host can verify and reuse an existing protected runtime
+        # without elevation. Only a missing runtime needs administrator access.
+        if runtime_result="$("$PREBUILT_APP/Contents/MacOS/RemCTL Capability Host" --install-python-runtime 2>&1)"; then
+            printf '%s\n' "$runtime_result"
+        else
+            runtime_status=$?
+            [[ "$runtime_status" == "77" ]] || fail "$runtime_result"
+            /usr/bin/sudo "$PREBUILT_APP/Contents/MacOS/RemCTL Capability Host" --install-python-runtime
+        fi
     fi
     REMCTL_CAPABILITY_PYTHON="$CAPABILITY_PYTHON"
 else

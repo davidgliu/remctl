@@ -26,7 +26,7 @@ September 30, 2026. Local branch: `codex/remctl-distribution`. No push, main upd
 | Capability transport/archive/planner/diagnostics | 99 tests passed |
 | CLI/MCP/desktop/events | 563 tests passed |
 | Native host original identity, post-start resign rejection, sealed invocation/broker | 4 tests passed |
-| Distribution-focused tests | 8 tests passed, including explicit signing migration |
+| Distribution-focused tests | 9 tests passed, including explicit signing migration and protected runtime reuse |
 | Default download with no published artifact | Reports HTTP 404 and exits with failure; no silent fallback |
 | Notarization of a local certificate build | Rejected before submission |
 | Packaged license notices | Project, Python and locked UI dependency notices included |
@@ -38,10 +38,12 @@ September 30, 2026. Local branch: `codex/remctl-distribution`. No push, main upd
 | Developer ID app and DMG notarization | Accepted; both tickets stapled and validated |
 | Gatekeeper execution and disk-image opening | Both accepted as Notarized Developer ID |
 | Notarized payload installation | Default signature policy passed; isolated install/update/rollback/uninstall passed |
+| Free source build with only Apple tools on PATH | Passed with Apple Python 3.9.6 and no Homebrew or separately installed Python |
+| Existing runtime reused without elevation | Passed for local and Developer ID builds; missing runtime returns 77, damaged runtime returns 65 |
 
 Simulation uses temporary prefixes and does not install a live LaunchAgent or grant permissions. The protected runtime and broker rows above are separate live checks. Actual permission continuity remains pending; signature continuity alone does not prove it.
 
-Final local preview: `dist/local-preview/RemCTL Capability Host.app`. Built by the actual `--from-source` command with the normal persistent key directory, whose directory/files were verified as owner-only. Packaged UI, plugin configuration, icon, installers and license notices match the checked-in inputs. `--bootstrap` now starts guided onboarding after installation when run in an interactive Terminal; redirected and test runs remain noninteractive.
+Final source build: `dist/source-system-python/RemCTL Capability Host.app`. Built by the actual `--from-source` command with only `/usr/bin:/bin:/usr/sbin:/sbin` on PATH and the normal persistent key directory, whose directory/files were verified as owner-only. This was a dry run; that newly built runtime generation has not been installed. Earlier free-build protected runtime and live broker checks are listed separately above. Packaged UI, plugin configuration, icon, installers and license notices match the checked-in inputs. `--bootstrap` starts guided onboarding after installation when run in an interactive Terminal; redirected and test runs remain noninteractive.
 
 ## Remaining release gates
 
@@ -68,19 +70,23 @@ The initial M5 and M3 Ultra checks found the same Apple Development identity and
 
 ## Notarized local artifact
 
-Final artifact: `dist/release-arm64/RemCTL-arm64.dmg` (43 MB).
+Final artifact: `dist/release-final/RemCTL-arm64.dmg` (43 MB).
 
-- App submission: `b9e3cd9e-af68-479d-ab96-5a6e844e62c1`, Accepted.
-- DMG submission: `b7ef703e-1bb7-4415-af29-de6aba567a2a`, Accepted.
-- SHA-256: `43631c54ea9e662de6fff89141f190c15ba9fd520f06a4166787067d41c13fd9`.
+- App submission: `2d2cd545-5870-433a-83c7-640a74d11470`, Accepted.
+- DMG submission: `2406fdad-ce63-4235-986c-3352d3d01788`, Accepted.
+- SHA-256: `80a80bc333de36162b845ba1cf1b0ff8ef8ddf276e3d8952ef2ffd1ef0040a15`.
 - `stapler validate` passes for both app and DMG.
 - `spctl --assess --type execute` accepts the app.
 - `spctl --assess --type open --context context:primary-signature` accepts the DMG.
 
-The first notarized DMG was unsigned: Apple accepted it, but Gatekeeper's disk-image opening check rejected it. The packaging script now signs the DMG with the app's exact Developer ID certificate before submitting it, verifies the publisher, and requires the disk-image opening assessment before reporting success. Use the final `dist/release-arm64` artifact, not the earlier image in `dist/developer-id-arm64`.
+The first notarized DMG was unsigned: Apple accepted it, but Gatekeeper's disk-image opening check rejected it. The packaging script now signs the DMG with the app's exact Developer ID certificate before submitting it, verifies the publisher, and requires the disk-image opening assessment before reporting success. Use the final `dist/release-final` artifact; earlier images are superseded.
 
 For permission acceptance, launch the host through its LaunchAgent. A host directly spawned by the development client can make macOS attribute a new Reminders request to that client. No ChatGPT permission was granted during that discovery. Temporary test LaunchAgents run the free build and signed release, separate from the existing installed host. A changed app at `dist/local-update-check` has code hash `f5c4110421bfeb6f4c2afe6bb037d174fa5d96e7`, different from the original `de141726b1d7e110a66e82e3aeeb0bd16122b5f7`, with the identical persistent signing requirement. Reminders remained authorized after this update, and a real `today --via-eventkit --json` read through the sealed host passed without another prompt.
 
-The signed release's separately signed Python is now installed and verified under `/Library/RemCTL/Python/a85b3a52b0d60214bfba8a3847ddded0ba077989138eda6152c41a43c6de1592`. Its packaged shell CLI and sealed broker run successfully. Full Disk Access remains blocked by the old Apple Development permission entry: macOS's TCC log explicitly reports that the saved code requirement does not match the new certificate. Adding the source app to the existing entry did not replace that requirement; an explicit UI refresh is awaiting native authentication. This is permission migration, not a reason to grant disk access to Python or the AI client.
+The signed release's separately signed Python is installed and verified under `/Library/RemCTL/Python/a85b3a52b0d60214bfba8a3847ddded0ba077989138eda6152c41a43c6de1592`. Its packaged shell CLI and sealed broker run successfully. Full Disk Access remains blocked by the old Apple Development permission entry: macOS's TCC log explicitly reports that the saved code requirement does not match the new certificate. Adding the source app to the existing entry did not replace that requirement. This is permission migration, not a reason to grant disk access to Python or the AI client.
 
-After native authentication completed the off step of that refresh, the existing workspace reported a database-access error. The original grant was immediately restored and the installed host restarted. Fresh status reports all three permissions authorized and `fullReady: true`; the visible ChatGPT workspace completed Refresh without an error. Both temporary test LaunchAgents were stopped. The installed Apple Development app remains unchanged. A dry run of `--prebuilt dist/release-arm64/RemCTL Capability Host.app --migrate-signing` against the real installation passed. Final live migration is awaiting the user's choice, because it replaces the host used by the working workspace. Further identity tests must run sequentially and finish with a verified working installation.
+During permission refresh, turning off the old grant caused the existing workspace to report a database-access error. The original grant was restored and the old installed host restarted: all three permissions were authorized, `fullReady` was true, and the visible ChatGPT workspace completed Refresh without an error. Both temporary test LaunchAgents were stopped. Further identity tests must run sequentially and finish with a verified working installation.
+
+Federico subsequently approved live replacement. The previous app, client directory and LaunchAgent were saved in `dist/pre-release-install-backup`. The notarized build was installed successfully, then updated under the same Developer ID to the final `release-final` artifact. Both transactions restarted the existing MCP HTTP endpoint and passed its health check; both reused verified protected Python without elevation. The installed app passes strict signature and Gatekeeper checks, reports version 2.0.0, and matches the checked-in installer, UI and icon bytes. The final host distinguishes invalid runtime data from missing-runtime authorization (exit 65 versus 77). After this change, all 19 installer lifecycle tests, 5 installer diagnostics tests and 9 distribution tests passed.
+
+The installed host still needs its new signing identity's native Reminders and Full Disk Access grants. System Settings is awaiting authentication to remove the old certificate's entry. The earlier workspace recovery proves the old installation's health, not completion of this migration. No other test host remains running.

@@ -152,9 +152,43 @@ class PrebuiltInstallTests(unittest.TestCase):
     def test_runtime_install_requires_admin(self):
         if os.geteuid() == 0:
             self.skipTest("requires an ordinary user")
+        # A valid manifest with a new content address has no installed runtime.
+        app = self.root / distribution.APP_NAME
+        shutil.copytree(self.app, app, symlinks=True)
+        resources = app / "Contents/Resources"
+        manifest = resources / "python-manifest.json"
+        manifest.write_bytes(manifest.read_bytes() + b" ")
+        digest = hashlib.sha256(manifest.read_bytes()).hexdigest()
+        destination = Path(f"/Library/RemCTL/Python/{digest}")
+        self.assertFalse(destination.exists())
+        (resources / "remctl-capability-python-path").write_text(str(destination / "bin/python3.13") + "\n")
+        identity = local_signing.identity(self.root / "runtime-signing")
+        try:
+            distribution.sign(app, identity, False, executable=True)
+            result = subprocess.run([str(app / "Contents/MacOS/RemCTL Capability Host"), "--install-python-runtime"], capture_output=True, text=True, timeout=30)
+            self.assertEqual(result.returncode, 77, result.stderr)
+            self.assertIn("administrator authorization", result.stderr)
+            self.assertFalse(destination.exists())
+            entries = json.loads(manifest.read_bytes())
+            file_entry = next(entry for entry in entries.values() if entry["type"] == "file")
+            file_entry["sha256"] = "0" * 64
+            manifest.write_text(json.dumps(entries))
+            digest = hashlib.sha256(manifest.read_bytes()).hexdigest()
+            (resources / "remctl-capability-python-path").write_text(f"/Library/RemCTL/Python/{digest}/bin/python3.13\n")
+            distribution.sign(app, identity, False, executable=True)
+            invalid = subprocess.run([str(app / "Contents/MacOS/RemCTL Capability Host"), "--install-python-runtime"], capture_output=True, text=True, timeout=30)
+            self.assertEqual(invalid.returncode, 65, invalid.stderr)
+            self.assertNotIn("administrator authorization", invalid.stderr)
+        finally:
+            local_signing.run("/usr/bin/security", "delete-keychain", identity["keychain"])
+
+    def test_existing_runtime_is_verified_without_admin(self):
+        python = Path((self.app / "Contents/Resources/remctl-capability-python-path").read_text().strip())
+        if not python.exists():
+            self.skipTest("requires this app's protected runtime to be installed")
         result = subprocess.run([str(self.app / "Contents/MacOS/RemCTL Capability Host"), "--install-python-runtime"], capture_output=True, text=True, timeout=30)
-        self.assertEqual(result.returncode, 77, result.stderr)
-        self.assertIn("administrator authorization", result.stderr)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("already installed", result.stdout)
 
     def test_signing_migration_requires_explicit_choice(self):
         installed = self.install()

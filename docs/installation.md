@@ -45,7 +45,7 @@ Rebuild and update with the same command. Existing installations retain their ce
 
 ## Protected Python permissions
 
-The app carries its matching Python version, so it never runs a random Python from your PATH. The installer asks `sudo` for administrator authorization to copy this runtime into `/Library/RemCTL/Python/<content-id>`. The host validates the signed manifest, every file and internal symlink, and root ownership before using it. Ordinary user processes cannot change the installed runtime.
+The app carries its matching Python version, so it never runs a random Python from your PATH. The host first verifies whether that exact runtime is already installed in `/Library/RemCTL/Python/<content-id>`. If it is, installation reuses it without a password prompt. A missing runtime requires administrator authorization through `sudo`. A damaged runtime stops installation instead of requesting elevation. The host validates the signed manifest, every file and internal symlink, and root ownership before using it. Ordinary user processes cannot change the installed runtime.
 
 The password is handled by macOS/`sudo`, never stored by RemCTL. The installer does not change permissions on a system or Homebrew Python. Different runtime generations can coexist. Uninstall leaves these shared copies in place.
 
