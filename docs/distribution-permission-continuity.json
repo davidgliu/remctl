@@ -44,5 +44,53 @@
       "status": "ok"
     },
     "protectedReadCount": 12
+  },
+  "developerIDUpdate": {
+    "before": {
+      "ok": true,
+      "effectiveAccess": {
+        "route": "capabilityHost",
+        "ready": true
+      },
+      "signature": {
+        "valid": true,
+        "identifier": "net.macstories.remctl.capability-host",
+        "teamID": "4W35M4UN6R",
+        "cdhash": "5e5aee281cda9af74aa022c03ac6036688315cea",
+        "designatedRequirement": "identifier \"net.macstories.remctl.capability-host\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"4W35M4UN6R\"",
+        "error": null
+      },
+      "permissions": {
+        "automation": "authorized",
+        "automationTarget": "com.apple.reminders",
+        "fullDiskAccess": "authorized",
+        "reminders": "authorized",
+        "status": "ok"
+      }
+    },
+    "after": {
+      "ok": true,
+      "effectiveAccess": {
+        "route": "capabilityHost",
+        "ready": true
+      },
+      "signature": {
+        "valid": true,
+        "identifier": "net.macstories.remctl.capability-host",
+        "teamID": "4W35M4UN6R",
+        "cdhash": "f88a3791a02ceaab159f2247869434ea8e981077",
+        "designatedRequirement": "identifier \"net.macstories.remctl.capability-host\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = \"4W35M4UN6R\"",
+        "error": null
+      },
+      "permissions": {
+        "automation": "authorized",
+        "automationTarget": "com.apple.reminders",
+        "fullDiskAccess": "authorized",
+        "reminders": "authorized",
+        "status": "ok"
+      },
+      "protectedReadCount": 12
+    },
+    "newPermissionPrompts": false
   }
 }

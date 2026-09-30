@@ -106,3 +106,26 @@ Conversation `01a0f147-e1cb-7442-a3cb-083d3b749aad` verified the final responsiv
 Final build `53e02600ba62dc06` passed TypeScript, UI interaction contracts, official extension schemas, production bundling, and whitespace validation. Installed HTML and Python plugin/workspace/MCP files matched source byte-for-byte. Installer diagnostics reported 16 checks, one expected direct-caller access warning, and zero failures; signed-host access and existing permission identity were preserved.
 
 The final build also passed the medium-width check in conversation `01a0f14c-4a82-7390-8693-5ad649026ecc`: at 785 points, the sidebar closes automatically and heading controls wrap, leaving room for the task list beside Details. Dark native date controls remain legible. Evidence: [medium-width dark workspace](screenshots/desktop-medium-dark-final.png). Generated HTML SHA256 prefix: `06e2d56c86bc7fa7`.
+
+## Rich rows, floating capture and sidebar pins — September 30
+
+Installed native acceptance used the standalone global Reminders entry in ChatGPT, backed by the signed build `19947cb0574b92bf`:
+
+- Today displayed the actual saved Maestro Snap artwork, note and time, under Afternoon. Weekly 531 displayed the original Unread Portugal photograph and AtAt hero image, alongside readable App Radar notes and nested subtasks. Image attachments also appeared inline.
+- Quick Add opened above the host composer. Escape preserved its draft. Creation of demo 5011 returned exactly the selected list, note, October 1 at 09:00, high priority and flag through standalone MCP readback.
+- Command-Return created demo 5012 once and left an empty, focused panel. Return created demo 5013 once and closed the panel. All three temporary reminders were removed through normal recoverable deletion after testing.
+- Clicking the regular-list pin on demo list 178 saved `pinned: true` and moved it above unpinned lists. Custom smart list 177 also persisted its pin. Both were restored to `pinned: false` through the interface and verified with MCP.
+- Old conversation app tabs retained cached HTML after updating. The global Reminders entry loaded the installed build. Open a fresh workspace after an update.
+
+The acceptance pass found two final refinements: compact date-editor layout inside Quick Add, and clearing successful creation drafts even if Reminders has not returned a numeric ID yet. Final installation verification is recorded after packaging below.
+
+### Pinned tiles and compact artwork
+
+Compared Apple Reminders and ChatGPT directly with Computer. Build `4e6776f1b435146a` displays Today, Scheduled, Completed, Reminders, Shopping, Projects, Work and Weekly 531 in the native order. Built-in hidden-state metadata controls the tile grid; other views remain available below. Regular and custom smart pins share the grid without duplicate rows, including lists inside groups. The sidebar scrolls as one area.
+
+Native acceptance pinned grouped demo list 175 into one tile, then restored it to group 176. Smart list 177 appeared as an orange tile with count 0; its right-click menu unpinned it. Standalone MCP confirmed both restored pin states. The Nowdex link card and inline image are 360 pixels wide; the image opens full-size and Escape returns focus to its preview button. Quick Add’s date and optional time controls are aligned inside the floating panel.
+
+The host’s disappearance during testing was traced to the plugin loader rejecting absolute stdio executable paths. The corrected bare `sh` launcher restored registration after disabling/re-enabling RemCTL; no privacy reset was required. The distribution worktree owns the launcher regression check and matching signed artifacts. A final visual correction removes the Completed count, matching Apple Reminders; final installed readback follows.
+
+
+Final delivery build `36b8d2553f71a011` passed native readback after refreshing the plugin connection. The Completed tile has no crowded count; pinned ordering, Weekly 531 artwork and smaller inline images are visible, and the global entry remains registered. The matching installed host has all three permissions and passes a real protected-store read. Final local screenshot: `/private/tmp/remctl-acceptance/pinned-compact-final.png`. No remaining UI changes were identified.

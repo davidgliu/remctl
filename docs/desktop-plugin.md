@@ -86,3 +86,7 @@ The JavaScript checks include actual extension SDK validation of the generated n
 The four-circle translucent icon is shared by the plugin, MCP server and Capability Host. See [icon provenance](icon-provenance.md) for the ImageGen edit prompt and assets.
 
 Installed acceptance results and known verification limits are recorded in [desktop validation](desktop-plugin-validation.md).
+
+### Refreshing an open workspace after an update
+
+ChatGPT can keep an already-open RemCTL workspace on its previous UI revision. If reopening the sidebar entry still shows the old view, open **Plugins → Manage**, search for RemCTL, switch it off and back on, then open **Reminders** again. This refreshes the plugin connection and keeps existing macOS permissions. Do not uninstall the Capability Host or clear privacy permissions for a cached view.
