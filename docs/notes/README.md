@@ -10,6 +10,7 @@ These are dated engineering records: audits, reviews, and the evidence behind ea
 | [remindctl comparison](remindctl-comparison-2026-09-26.md) | RemCTL versus the CLI behind Hermes Agent's Reminders skill |
 | [2.0 launch validation](release-2.0.0-validation.md) | Redesigned launch app, notarization, and installed acceptance |
 | [2.0.2 validation](release-2.0.2-validation.md) | The installer app, 1.7.1 upgrades through the download, and notarization |
+| [2.0.3 validation](release-2.0.3-validation.md) | The tailnet token in each device's Keychain, tested live with four clients |
 | [Distribution validation](distribution-validation-2026-09-30.md) | The notarized download, free builds, signing, and permission continuity |
 | [Desktop validation](desktop-validation-2026-09-30.md) | Acceptance testing of the Codex plugin |
 | [Events](events-2026-09-30.md) | The MCP Events implementation and why it's turned off |
