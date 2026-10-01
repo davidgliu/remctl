@@ -59,6 +59,17 @@ describe('remctl today', () => {
     }
   })
 
+  test('on a narrow band the list chips get a row of their own', async ($, on) => {
+    const clock = remctl(on, [])
+    await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true })
+    await clock.settle()
+
+    const ui = await $.ui.mount({ plugin: 'remctl', surface: 'terminal', ...BAND, props: { ...BAND.props, bodyColumns: 72 } })
+    for (const name of ['Editorial', 'Family', 'Weekly 530']) {
+      expect(await ui.find({ type: 'Text', text: new RegExp(`^● ${name} $`) })).toBeDefined()
+    }
+  })
+
   test('the pane check button completes that reminder', async ($, on) => {
     const calls: { tool: string; args: Record<string, unknown> }[] = []
     const clock = remctl(on, calls)

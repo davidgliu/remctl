@@ -37,6 +37,8 @@ const WRITES =
   /^mcp__(plugin_remctl_)?remctl__(create_reminder|update_reminder|set_completion|set_flagged|delete_reminder|restore_reminder|run)$/
 // The band's widest, in columns.
 const BAND_COLUMNS = 96
+// The docked pane's width, in columns.
+const PANE_COLUMNS = 52
 // Waits between looks for the server while MCP servers connect at startup.
 const RETRIES = [2_000, 5_000, 15_000, 30_000]
 
@@ -145,7 +147,12 @@ export const register: Register = (on, options) => {
     // Capped so a task's due label stays near its title on a wide terminal,
     // and clear of the engine's collapse mark at the band's right edge.
     const width = Math.min(e.props.bodyColumns - 4, BAND_COLUMNS)
-    const chips = fitChips(groupsOf(rows, snap.lists), width - headText(rows).length - 8)
+    const groups = groupsOf(rows, snap.lists)
+    // The list chips sit beside the summary when they all fit there, and get
+    // a row of their own otherwise, as on an 80-column terminal.
+    const beside = fitChips(groups, width - headText(rows).length - 8)
+    const isOwnRow = beside.hidden > 0
+    const chips = isOwnRow ? fitChips(groups, width - 4) : beside
     const shown = settings.display === 'band' ? rows.slice(0, settings.rows) : []
     const more = rows.length - shown.length
 
@@ -156,17 +163,16 @@ export const register: Register = (on, options) => {
             <Text color={BLUE} bold>◉ Today</Text>
             <Text bold>{`  ${rows.length} left`}</Text>
             {lateCount(rows) > 0 ? <Text color={RED}>{` · ${lateCount(rows)} overdue`}</Text> : null}
-            <Text>{'    '}</Text>
-            {chips.shown.map(group => (
-              <Text>
-                <Text color={group.color}>{`● ${group.name} `}</Text>
-                <Text dimColor>{`${group.rows.length}   `}</Text>
-              </Text>
-            ))}
-            {chips.hidden > 0 ? <Text dimColor>{`+${chips.hidden} ${chips.hidden === 1 ? 'list' : 'lists'}`}</Text> : null}
+            {isOwnRow ? null : <Text>{'    '}</Text>}
+            {isOwnRow ? null : chipTexts(kit, chips)}
           </Text>
           <Button key="open" plain dimColor label="Open ›" onPress={() => void openPane($)} />
         </Box>
+        {isOwnRow ? (
+          <Box paddingLeft={2}>
+            <Text wrap="truncate-end">{chipTexts(kit, chips)}</Text>
+          </Box>
+        ) : null}
         {shown.map(row => taskLine(kit, row, { showList: true }))}
         {shown.length > 0 && more > 0 ? <Text dimColor>{`  +${more} more · /reminders`}</Text> : null}
       </Box>
@@ -196,8 +202,8 @@ export const register: Register = (on, options) => {
 
     return (
       <Box flexDirection="column" paddingX={1}>
-        <Box justifyContent="space-between" paddingRight={2}>
-          <Text color={BLUE} bold>{longDay(snap.now)}</Text>
+        <Box justifyContent="space-between" paddingRight={2} gap={2}>
+          <Text color={BLUE} bold wrap="truncate-end">{dayTitle(snap.now, countsWidth(rows), e.props.bodyColumns)}</Text>
           <Text>
             <Text bold>{`${rows.length} left`}</Text>
             {late > 0 ? <Text color={RED}>{` · ${late} overdue`}</Text> : null}
@@ -238,9 +244,21 @@ export const register: Register = (on, options) => {
   })
 }
 
+// Opens /reminders: docked, wide enough for a task and its due time; above
+// the prompt, tall enough for every row rather than the default third.
 async function openPane($: EngineInterface) {
-  const opened = await $.ui.open({ id: PANE, title: 'Today' })
+  const snap = await read($, snapshot)
+  const size = snap ? { rows: paneRows(snap) } : {}
+  const opened = await $.ui.open({ id: PANE, title: 'Today', columns: PANE_COLUMNS, ...size })
   await update($, isPaneOpen, () => opened.isPlaced)
+}
+
+// The pane's height: the date row, a gap and a heading per list, its tasks,
+// then a gap and the footer.
+function paneRows(snap: TodaySnapshot): number {
+  const rows = rowsOf(snap)
+  const lists = new Set(rows.map(row => row.list)).size
+  return 1 + (rows.length === 0 ? 2 : lists * 2 + rows.length) + 2
 }
 
 // Looks for RemCTL until it answers or the retries run out.
@@ -282,6 +300,20 @@ async function undo($: EngineInterface, settings: Settings, name: string, done: 
   }
   await update($, lastDone, () => null)
   await refresh($, settings)
+}
+
+// Each list as a chip in its color with its count, then how many did not fit.
+function chipTexts(kit: Kit, chips: { shown: Group[]; hidden: number }) {
+  const { Text } = kit
+  return [
+    ...chips.shown.map(group => (
+      <Text>
+        <Text color={group.color}>{`● ${group.name} `}</Text>
+        <Text dimColor>{`${group.rows.length}   `}</Text>
+      </Text>
+    )),
+    chips.hidden > 0 ? <Text dimColor>{`+${chips.hidden} ${chips.hidden === 1 ? 'list' : 'lists'}`}</Text> : null,
+  ]
 }
 
 // One task's line: a circle in its list's color, the title with its flag and
@@ -516,10 +548,20 @@ function shiftDay(day: string, by: number): string {
 }
 
 // `Thursday, October 1` for a local stamp.
-function longDay(stamp: string): string {
+// The pane's date: `Thursday, October 1`, or `Thu, Oct 1` when the long form
+// would crowd the counts beside it.
+function dayTitle(stamp: string, counts: number, columns: number): string {
   const [year = 1970, month = 1, date = 1] = stamp.slice(0, 10).split('-').map(Number)
-  const day = new Date(year, month - 1, date)
-  return `${WEEKDAYS[day.getDay()]}, ${LONG_MONTHS[month - 1]} ${date}`
+  const weekday = WEEKDAYS[new Date(year, month - 1, date).getDay()] ?? ''
+  const long = `${weekday}, ${LONG_MONTHS[month - 1]} ${date}`
+  // The pane's padding, the gap, and room for the close mark.
+  return long.length + counts + 7 <= columns ? long : `${weekday.slice(0, 3)}, ${MONTHS[month - 1]} ${date}`
+}
+
+// The width of the pane's `6 left · 1 overdue`.
+function countsWidth(rows: Row[]): number {
+  const late = lateCount(rows)
+  return `${rows.length} left`.length + (late > 0 ? ` · ${late} overdue`.length : 0)
 }
 
 // Local `YYYY-MM-DDTHH:MM`: how RemCTL's zone-less due dates begin.
