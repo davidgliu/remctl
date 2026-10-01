@@ -7,6 +7,7 @@ import json
 import os
 import plistlib
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -673,7 +674,21 @@ class StdioTransportTests(unittest.TestCase):
             self.assertIn("unsupported", responses[3]["result"]["structuredContent"]["error"]["message"])
 
 
+def isolate_client_configs(test):
+    """Point every client config at a missing file, so this Mac's real apps and plugins never leak in."""
+    missing = Path(tempfile.mkdtemp()) / "missing"
+    test.addCleanup(shutil.rmtree, missing.parent, True)
+    for name, filename in (("CLAUDE_CODE_CONFIG", "claude.json"), ("CLAUDE_CODE_SETTINGS", "settings.json"),
+                           ("CODEX_CONFIG", "config.toml"), ("CLAUDE_DESKTOP_CONFIG", "desktop.json")):
+        patcher = mock.patch.object(remctl_mcp, name, missing / filename)
+        patcher.start()
+        test.addCleanup(patcher.stop)
+
+
 class RegistrationTests(unittest.TestCase):
+    def setUp(self):
+        isolate_client_configs(self)
+
     def test_server_command_uses_the_absolute_interpreter(self):
         command, args = remctl_mcp.server_command(Path("/Users/x/bin/remctl"))
         self.assertTrue(os.path.isabs(command))
@@ -785,6 +800,101 @@ class RegistrationTests(unittest.TestCase):
         self.assertEqual(calls[0], ["/opt/codex", "mcp", "add", "remctl", "--", command, *args])
         self.assertTrue(removed["ok"])
         self.assertEqual(calls[1], ["/opt/codex", "mcp", "remove", "remctl"])
+
+    def test_codex_install_leaves_the_remctl_plugin_alone_and_removes_the_server_shadowing_it(self):
+        # The plugin's server is also named remctl. One added by hand shadows it,
+        # and Codex then drops the plugin's Reminders sidebar entry.
+        calls = []
+
+        def runner(argv, **kwargs):
+            calls.append(argv)
+            return subprocess.CompletedProcess(argv, 0, "", "")
+
+        plugin = '[plugins."remctl@remctl-local"]\nenabled = true\n'
+        with tempfile.TemporaryDirectory() as tmp, \
+             mock.patch.object(remctl_mcp.shutil, "which", side_effect=lambda name: "/opt/codex" if name == "codex" else None):
+            config = Path(tmp) / "config.toml"
+            config.write_text(plugin + '\n[mcp_servers.remctl]\ncommand = "python3"\n', encoding="utf-8")
+            result = remctl_mcp.install_codex(Path("/Users/x/bin/remctl"), runner=runner, config_path=config)
+            self.assertEqual(calls, [["/opt/codex", "mcp", "remove", "remctl"]])
+            self.assertEqual((result["ok"], result["plugin"], result["removedDuplicate"]), (True, "remctl@remctl-local", True))
+
+            calls.clear()
+            config.write_text(plugin, encoding="utf-8")
+            result = remctl_mcp.install_codex(Path("/Users/x/bin/remctl"), runner=runner, config_path=config)
+            self.assertEqual(calls, [], "with only the plugin there is nothing to add or remove")
+            self.assertEqual((result["ok"], result["removedDuplicate"]), (True, False))
+            self.assertIn("no second connection was added", result["note"])
+
+            config.write_text(plugin.replace("true", "false"), encoding="utf-8")
+            result = remctl_mcp.install_codex(Path("/Users/x/bin/remctl"), runner=runner, config_path=config)
+            self.assertEqual(calls[0][1:4], ["mcp", "add", "remctl"], "a disabled plugin connects nothing")
+            self.assertNotIn("plugin", result)
+
+    def test_claude_code_install_leaves_the_remctl_plugin_alone_at_user_scope(self):
+        calls = []
+        status = {"remove": 0}
+
+        def runner(argv, **kwargs):
+            calls.append(argv)
+            return subprocess.CompletedProcess(argv, status["remove"] if argv[2] == "remove" else 0, "", "boom")
+
+        with tempfile.TemporaryDirectory() as tmp, \
+             mock.patch.object(remctl_mcp.shutil, "which", side_effect=lambda name: "/opt/claude" if name == "claude" else None):
+            settings = Path(tmp) / "settings.json"
+            claude = Path(tmp) / ".claude.json"
+            settings.write_text(json.dumps({"enabledPlugins": {"other@x": True, "remctl@remctl": True}}), encoding="utf-8")
+            claude.write_text(json.dumps({"mcpServers": {"remctl": {"command": "python3"}}}), encoding="utf-8")
+            install = lambda **kwargs: remctl_mcp.install_claude_code(Path("/Users/x/bin/remctl"), runner=runner,
+                                                                      settings_path=settings, config_path=claude, **kwargs)
+            result = install()
+            self.assertEqual(calls, [["/opt/claude", "mcp", "remove", "--scope", "user", "remctl"]])
+            self.assertEqual((result["ok"], result["plugin"], result["removedDuplicate"]), (True, "remctl@remctl", True))
+
+            calls.clear()
+            status["remove"] = 1
+            failed = install()
+            self.assertFalse(failed["ok"])
+            self.assertIn("boom", failed["error"])
+
+            calls.clear()
+            claude.write_text("{}", encoding="utf-8")
+            self.assertFalse(install()["removedDuplicate"])
+            self.assertEqual(calls, [])
+
+            # A project's .mcp.json is shared with people who may not have the plugin.
+            install(scope="project")
+            self.assertEqual(calls[0][1:5], ["mcp", "add", "--scope", "project"])
+
+            calls.clear()
+            settings.write_text(json.dumps({"enabledPlugins": {"remctl@remctl": False}}), encoding="utf-8")
+            install()
+            self.assertEqual(calls[0][1:3], ["mcp", "add"])
+
+    def test_registration_status_names_the_plugin_and_flags_a_server_that_duplicates_it(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            cli = Path("/Users/x/bin/remctl")
+            command, args = remctl_mcp.server_command(cli)
+            settings = root / "settings.json"
+            claude = root / ".claude.json"
+            codex = root / "config.toml"
+            settings.write_text(json.dumps({"enabledPlugins": {"remctl@remctl": True}}), encoding="utf-8")
+            claude.write_text(json.dumps({"mcpServers": {"remctl": {"command": command, "args": args}}}), encoding="utf-8")
+            codex.write_text('[plugins."remctl@remctl-local"]\nenabled = true\n', encoding="utf-8")
+            status = {entry["client"]: entry for entry in remctl_mcp.registration_status(
+                cli, claude_config=claude, codex_config=codex, desktop_config=root / "desktop.json", claude_settings=settings)}
+            self.assertEqual((status["claude-code"]["current"], status["claude-code"]["staleReason"]), (False, "duplicate"))
+            self.assertEqual(status["codex"]["plugin"], "remctl@remctl-local")
+            self.assertFalse(status["codex"]["configured"])
+            self.assertNotIn("staleReason", status["codex"])
+            self.assertIsNone(status["claude-desktop"].get("plugin"))
+            # --scope local is a deliberate choice that install leaves alone, so it is not a duplicate.
+            claude.write_text(json.dumps({"projects": {"/p": {"mcpServers": {"remctl": {"command": command, "args": args}}}}}), encoding="utf-8")
+            local = next(entry for entry in remctl_mcp.registration_status(
+                cli, claude_config=claude, codex_config=codex, desktop_config=root / "desktop.json", claude_settings=settings)
+                if entry["client"] == "claude-code")
+            self.assertTrue(local["current"])
 
     def test_claude_desktop_install_merges_config_preserves_other_keys_and_backs_up(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -925,6 +1035,9 @@ class CliIntegrationTests(unittest.TestCase):
     def setUpClass(cls):
         cls.remctl = load_module("remctl_mcp_cli_test", "remctl")
 
+    def setUp(self):
+        isolate_client_configs(self)
+
     def test_mcp_is_a_local_command_and_parses(self):
         self.assertIn("mcp", remctl_runtime.LOCAL_COMMANDS)
         parser, subparsers = self.remctl.build_parser()
@@ -1014,6 +1127,26 @@ class CliIntegrationTests(unittest.TestCase):
         self.assertIn("Codex: connected, but it points at a different RemCTL path", output)
         self.assertIn("Claude Desktop and Cowork: not installed", output)
 
+    def test_status_names_the_plugin_route_and_a_duplicate(self):
+        overview = {
+            "server": {"command": ["/usr/bin/python3", "/Users/x/bin/remctl", "mcp"]},
+            "clients": [
+                {"id": "claude-code", "name": "Claude Code", "installed": True, "configured": True, "plugin": "remctl@remctl", "current": None},
+                {"id": "codex", "name": "Codex", "installed": True, "configured": True, "plugin": "remctl@remctl-local",
+                 "current": False, "staleReason": "duplicate"},
+            ],
+            "tailscale": {"installed": False},
+        }
+        out = io.StringIO()
+        with mock.patch.object(self.remctl, "mcp_overview", return_value=overview), \
+             mock.patch.object(self.remctl.C, "enabled", False), \
+             mock.patch.object(sys, "stdout", out):
+            self.remctl.cmd_mcp(SimpleNamespace(mcp_action="status", json=False))
+        self.assertIn("Claude Code: connected through the RemCTL plugin\n", out.getvalue())
+        self.assertIn("Codex: connected, but it duplicates the connection the RemCTL plugin already provides", out.getvalue())
+        self.assertEqual(self.remctl.mcp_stale_clients_text(overview["clients"][1:]),
+                         "MCP connection duplicates the connection the RemCTL plugin already provides: Codex")
+
     def test_completion_scripts_mention_mcp(self):
         for shell in ("zsh", "bash", "fish"):
             with self.subTest(shell=shell):
@@ -1062,6 +1195,13 @@ class CliIntegrationTests(unittest.TestCase):
             codex = next(client for client in overview["clients"] if client["id"] == "codex")
             self.assertTrue(codex["installed"])
             self.assertFalse(codex["configured"])
+            # The plugin connects Claude Code without any server in its own config.
+            settings = Path(tmp) / "settings.json"
+            settings.write_text(json.dumps({"enabledPlugins": {"remctl@remctl": True}}), encoding="utf-8")
+            with mock.patch.object(remctl_mcp, "CLAUDE_CODE_SETTINGS", settings):
+                overview = self.remctl.mcp_overview()
+            claude = next(client for client in overview["clients"] if client["id"] == "claude-code")
+            self.assertEqual((claude["configured"], claude["plugin"], claude["current"]), (True, "remctl@remctl", None))
 
 
 
@@ -1541,6 +1681,20 @@ class OnboardingFlowTests(unittest.TestCase):
         self.assertEqual(installs, [])
         self.assertIn("○ Codex: not connected", output)
         self.assertIn("○ Not set up", output)
+
+    def test_a_plugin_counts_as_connected_and_a_second_connection_is_offered_for_removal(self):
+        clients = [
+            {"id": "claude-code", "name": "Claude Code", "installed": True, "configured": True, "plugin": "remctl@remctl", "current": None},
+            {"id": "codex", "name": "Codex", "installed": True, "configured": True, "plugin": "remctl@remctl-local",
+             "current": False, "staleReason": "duplicate"},
+        ]
+        output, installs = self._run(answers=["y"], tailscale={"installed": False}, clients=clients)
+        self.assertIn("✓ Claude Code: connected through the RemCTL plugin", output)
+        self.assertIn("Codex has the RemCTL plugin and a second RemCTL connection. Remove the second one? [Y/n]", output)
+        self.assertEqual(installs, ["codex"])
+        output, installs = self._run(answers=[], tailscale={"installed": False}, clients=clients, interactive=False)
+        self.assertEqual(installs, [])
+        self.assertIn("○ Codex: connected twice (the RemCTL plugin and a second connection)", output)
 
     def test_tailscale_step_is_hidden_without_tailscale_and_explains_missing_https(self):
         clients = []

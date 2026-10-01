@@ -13185,7 +13185,8 @@ def gather_doctor_checks(capability_host=None):
     else:
         mcp_clients = overview["clients"]
         tailscale = overview.get("tailscale") or {}
-        connected = [client["name"] for client in mcp_clients if client["configured"] and client.get("current") is not False]
+        connected = [client["name"] + (" (plugin)" if client.get("plugin") else "")
+                     for client in mcp_clients if client["configured"] and client.get("current") is not False]
         stale = [client for client in mcp_clients if client["configured"] and client.get("current") is False]
         installed = [client["name"] for client in mcp_clients if client["installed"]]
         if tailscale.get("configured") and tailscale.get("active"):
@@ -13655,11 +13656,16 @@ MCP_STALE_REASONS = {
     "different_cli": "points at a different RemCTL path",
     "interpreter_missing": "starts a Python that no longer exists",
     "interpreter_versioned": "starts a versioned Homebrew Python that `brew upgrade` deletes",
+    "duplicate": "duplicates the connection the RemCTL plugin already provides",
 }
 
 
 def mcp_stale_reason(client):
     return MCP_STALE_REASONS.get(client.get("staleReason"), MCP_STALE_REASONS["different_cli"])
+
+
+def mcp_connected_text(client):
+    return "connected through the RemCTL plugin" if client.get("plugin") else "connected"
 
 
 def mcp_stale_clients_text(stale):
@@ -13681,7 +13687,9 @@ def mcp_overview(cli_path=None):
         entry = status.get(client["id"], {})
         clients.append({
             **client,
-            "configured": bool(entry.get("configured")),
+            # The RemCTL plugin connects its app on its own; `configured` covers both routes.
+            "configured": bool(entry.get("configured") or entry.get("plugin")),
+            "plugin": entry.get("plugin"),
             "current": entry.get("current"),
             "staleReason": entry.get("staleReason"),
             "configPath": entry.get("path"),
@@ -13757,7 +13765,7 @@ def print_mcp_result(result):
             print(f"    {line}")
         return
     if result.get("ok"):
-        print(f"[{C.green('OK')}] {label}: connected")
+        print(f"[{C.green('OK')}] {label}: {mcp_connected_text(result)}")
         for key in ("path", "note"):
             if result.get(key):
                 print(f"      {C.dim(str(result[key]))}")
@@ -13860,13 +13868,18 @@ def offer_mcp_connections(cli_path, *, interactive=True):
     for client in detected:
         label = client["name"]
         if client["configured"] and client.get("current") is not False:
-            onboarding_line("ok", f"{label}: connected")
+            onboarding_line("ok", f"{label}: {mcp_connected_text(client)}")
             continue
-        verb = "Update" if client["configured"] else "Connect"
+        duplicate = client.get("staleReason") == "duplicate"
         if not interactive:
-            onboarding_line("pending", f"{label}: not connected", fix=f"remctl mcp install --client {client['id']}")
+            state = "connected twice (the RemCTL plugin and a second connection)" if duplicate else "not connected"
+            onboarding_line("pending", f"{label}: {state}", fix=f"remctl mcp install --client {client['id']}")
             continue
-        answer = onboarding_ask(f"{verb} {label}?", default_yes=True)
+        if duplicate:
+            question = f"{label} has the RemCTL plugin and a second RemCTL connection. Remove the second one?"
+        else:
+            question = f"{'Update' if client['configured'] else 'Connect'} {label}?"
+        answer = onboarding_ask(question, default_yes=True)
         if answer is None:
             break
         if not answer:
@@ -13875,7 +13888,7 @@ def offer_mcp_connections(cli_path, *, interactive=True):
         result = mcp_install_client(client["id"], cli_path)
         results.append(result)
         if result.get("ok"):
-            onboarding_line("ok", f"{label}: connected", fix=result.get("note"))
+            onboarding_line("ok", f"{label}: {mcp_connected_text(result)}", fix=result.get("note"))
         else:
             onboarding_line("fail", f"{label}: {result.get('error')}")
     return results
@@ -13976,7 +13989,7 @@ def cmd_mcp(a):
             # means its CLI is on this caller's PATH, and GUI apps, LaunchAgents,
             # and remote runners often lack ~/.local/bin.
             if client["configured"] and client.get("current") is not False:
-                state = C.green("connected")
+                state = C.green(mcp_connected_text(client))
             elif client["configured"]:
                 state = C.yellow(f"connected, but it {mcp_stale_reason(client)}; rerun remctl mcp install")
             elif not client["installed"]:

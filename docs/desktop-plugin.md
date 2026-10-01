@@ -27,11 +27,13 @@ Start a new conversation and open 'Reminders' in the sidebar, or ask Codex to "O
 
 Some features use Apple's private ReminderKit framework: sections, tags, attachments, templates, groups, smart lists, and more. Turn on 'Advanced Reminders features' in RemCTL's settings to use them. The workspace follows your Mac's light or dark appearance unless you pick one in the same settings.
 
-If you connected Codex to RemCTL before (with `remctl mcp install` or during onboarding), remove that connection so Codex doesn't see RemCTL twice. This doesn't affect the plugin or your other AI apps:
+If you connected Codex to RemCTL before (with `remctl mcp install` or during onboarding), remove that connection, then restart Codex. Codex would otherwise see RemCTL twice, and the older connection hides 'Reminders' in the sidebar. This doesn't affect the plugin or your other AI apps:
 
 ```bash
 remctl mcp remove --client codex
 ```
+
+Once the plugin is installed, `remctl mcp install` and onboarding leave Codex to it: they add nothing, and they remove an older connection if they find one. `remctl doctor` points one out.
 
 **From a checkout.** If you already registered a checkout with `codex plugin marketplace add .`, it keeps working. The plugin then follows your checkout instead of the installed app, so run the installer after every `git pull` to keep the two in step. To switch an existing checkout registration to the installed app, remove the old marketplace first:
 

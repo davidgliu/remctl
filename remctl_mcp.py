@@ -1982,8 +1982,12 @@ def icon_data_uri(path: Path | None) -> list[dict[str, Any]]:
 
 CLIENT_IDS = ("claude-code", "codex", "claude-desktop", "other")
 CLAUDE_DESKTOP_CONFIG = Path.home() / "Library" / "Application Support" / "Claude" / "claude_desktop_config.json"
-CLAUDE_CODE_CONFIG = Path.home() / ".claude.json"
-CODEX_CONFIG = Path.home() / ".codex" / "config.toml"
+# The same profile directories the claude and codex CLIs use, so a status check
+# reads the config that `claude mcp add` and `codex mcp add` write.
+_CLAUDE_DIR = Path(os.environ["CLAUDE_CONFIG_DIR"]).expanduser() if os.environ.get("CLAUDE_CONFIG_DIR") else None
+CLAUDE_CODE_CONFIG = (_CLAUDE_DIR or Path.home()) / ".claude.json"
+CLAUDE_CODE_SETTINGS = (_CLAUDE_DIR or Path.home() / ".claude") / "settings.json"
+CODEX_CONFIG = (Path(os.environ["CODEX_HOME"]).expanduser() if os.environ.get("CODEX_HOME") else Path.home() / ".codex") / "config.toml"
 
 
 # A Homebrew keg path, such as /opt/homebrew/Cellar/python@3.14/3.14.7/bin/python3.14.
@@ -2055,9 +2059,68 @@ def detect_clients() -> list[dict[str, Any]]:
     ]
 
 
-def install_claude_code(cli_path: Path, *, scope: str = "user", runner: Callable[..., Any] | None = None) -> dict[str, Any]:
+def _enabled_plugin(plugins: Any) -> str | None:
+    """The id of an enabled RemCTL plugin, such as remctl@remctl, in a client's plugin table."""
+
+    if not isinstance(plugins, dict):
+        return None
+    for plugin_id, value in plugins.items():
+        # Claude Code stores `true`; Codex stores a table with `enabled`.
+        enabled = value.get("enabled", True) if isinstance(value, dict) else value
+        if str(plugin_id).startswith(SERVER_NAME + "@") and enabled is True:
+            return str(plugin_id)
+    return None
+
+
+def claude_code_plugin(settings_path: Path | None = None) -> str | None:
+    """The RemCTL plugin Claude Code runs for this user. It brings its own server."""
+
+    try:
+        settings = _read_json_config(settings_path or CLAUDE_CODE_SETTINGS)
+    except (OSError, ValueError):
+        return None
+    return _enabled_plugin(settings.get("enabledPlugins"))
+
+
+def codex_plugin(config_path: Path | None = None) -> str | None:
+    """The RemCTL plugin Codex runs. It brings its own server named remctl."""
+
+    try:
+        text = (config_path or CODEX_CONFIG).read_text(encoding="utf-8")
+    except OSError:
+        return None
+    return _enabled_plugin((_codex_config(text) or {}).get("plugins"))
+
+
+def _plugin_connection(client: str, plugin: str, duplicate: bool, remove: Callable[[], dict[str, Any]]) -> dict[str, Any]:
+    """Leave a client the RemCTL plugin connects alone, minus a second server an older install added."""
+
+    result: dict[str, Any] = {"client": client, "ok": True, "plugin": plugin, "removedDuplicate": False}
+    if duplicate:
+        removed = remove()
+        if not removed.get("ok"):
+            return {**result, "ok": False, "error": f"Could not remove the second RemCTL connection: {removed.get('error') or 'remove failed'}"}
+        result["removedDuplicate"] = True
+        result["note"] = f"The {plugin} plugin already connects it. Removed the second connection an older install added; restart the app to drop it."
+    else:
+        result["note"] = f"The {plugin} plugin already connects it, so no second connection was added."
+    return result
+
+
+def install_claude_code(cli_path: Path, *, scope: str = "user", runner: Callable[..., Any] | None = None,
+                        settings_path: Path | None = None, config_path: Path | None = None) -> dict[str, Any]:
     if scope not in {"user", "local", "project"}:
         raise ValueError("scope must be user, local, or project")
+    # Only the user scope defers to the plugin. A project's .mcp.json is shared
+    # with people who may not have the plugin, and --scope local is a deliberate choice.
+    plugin = claude_code_plugin(settings_path) if scope == "user" else None
+    if plugin:
+        try:
+            servers = _read_json_config(config_path or CLAUDE_CODE_CONFIG).get("mcpServers")
+        except (OSError, ValueError):
+            servers = None
+        duplicate = isinstance(servers, dict) and SERVER_NAME in servers
+        return _plugin_connection("claude-code", plugin, duplicate, lambda: remove_claude_code(runner=runner))
     claude = shutil.which("claude")
     if not claude:
         return {"client": "claude-code", "ok": False, "error": "The claude CLI is not on PATH. Install Claude Code first."}
@@ -2086,7 +2149,17 @@ def remove_claude_code(*, scope: str = "user", runner: Callable[..., Any] | None
     return {"client": "claude-code", "ok": result.returncode == 0, "error": None if result.returncode == 0 else (result.stderr or result.stdout).strip()}
 
 
-def install_codex(cli_path: Path, *, runner: Callable[..., Any] | None = None) -> dict[str, Any]:
+def install_codex(cli_path: Path, *, runner: Callable[..., Any] | None = None, config_path: Path | None = None) -> dict[str, Any]:
+    path = config_path or CODEX_CONFIG
+    plugin = codex_plugin(path)
+    if plugin:
+        # A server added by hand under the plugin's server name shadows the
+        # plugin's, and Codex then drops the plugin's Reminders sidebar entry.
+        try:
+            duplicate = _toml_has_server(path.read_text(encoding="utf-8"))
+        except OSError:
+            duplicate = False
+        return _plugin_connection("codex", plugin, duplicate, lambda: remove_codex(runner=runner))
     codex = shutil.which("codex")
     if not codex:
         return {"client": "codex", "ok": False, "error": "The codex CLI is not on PATH. Install Codex first."}
@@ -2194,16 +2267,24 @@ def _toml_has_server(text: str) -> bool:
     return re.search(r"^\s*\[mcp_servers\." + re.escape(SERVER_NAME) + r"\]", text, re.MULTILINE) is not None
 
 
-def _codex_server_entry(text: str) -> dict[str, Any] | None:
-    """The `[mcp_servers.remctl]` table as a dict, when the file parses (Python 3.11+); else None."""
+def _codex_config(text: str) -> dict[str, Any] | None:
+    """Codex's config.toml as a dict, when the file parses (Python 3.11+); else None."""
 
     try:
         import tomllib
     except ImportError:  # Python 3.10 client
         return None
     try:
-        data = tomllib.loads(text)
+        return tomllib.loads(text)
     except (ValueError, tomllib.TOMLDecodeError):
+        return None
+
+
+def _codex_server_entry(text: str) -> dict[str, Any] | None:
+    """The `[mcp_servers.remctl]` table as a dict, when the file parses; else None."""
+
+    data = _codex_config(text)
+    if data is None:
         return None
     servers = data.get("mcp_servers")
     entry = servers.get(SERVER_NAME) if isinstance(servers, dict) else None
@@ -2211,12 +2292,18 @@ def _codex_server_entry(text: str) -> dict[str, Any] | None:
 
 
 def registration_status(cli_path: Path | None = None, *, claude_config: Path | None = None,
-                        codex_config: Path | None = None, desktop_config: Path | None = None) -> list[dict[str, Any]]:
-    """Read each client's configuration directly; no client process is spawned."""
+                        codex_config: Path | None = None, desktop_config: Path | None = None,
+                        claude_settings: Path | None = None) -> list[dict[str, Any]]:
+    """Read each client's configuration directly; no client process is spawned.
+
+    `configured` means a server RemCTL added to the client's own config. `plugin`
+    names the RemCTL plugin when the client runs one, which brings its own server.
+    """
 
     entries: list[dict[str, Any]] = []
     claude_path = claude_config or CLAUDE_CODE_CONFIG
-    claude_entry: dict[str, Any] = {"client": "claude-code", "configured": False, "path": str(claude_path)}
+    claude_entry: dict[str, Any] = {"client": "claude-code", "configured": False, "path": str(claude_path),
+                                    "plugin": claude_code_plugin(claude_settings)}
     try:
         config = _read_json_config(claude_path)
         servers = config.get("mcpServers") if isinstance(config.get("mcpServers"), dict) else {}
@@ -2233,7 +2320,8 @@ def registration_status(cli_path: Path | None = None, *, claude_config: Path | N
     entries.append(claude_entry)
 
     codex_path = codex_config or CODEX_CONFIG
-    codex_entry: dict[str, Any] = {"client": "codex", "configured": False, "path": str(codex_path)}
+    codex_entry: dict[str, Any] = {"client": "codex", "configured": False, "path": str(codex_path),
+                                   "plugin": codex_plugin(codex_path)}
     if codex_path.exists():
         try:
             text = codex_path.read_text(encoding="utf-8")
@@ -2257,11 +2345,17 @@ def registration_status(cli_path: Path | None = None, *, claude_config: Path | N
         desktop_entry["error"] = str(exc)
     entries.append(desktop_entry)
 
+    for entry in entries:
+        # User scope only: install_claude_code leaves a --scope local server alone.
+        if entry.get("plugin") and entry["configured"] and entry.get("scope", "user") == "user":
+            entry["current"] = False
+            entry["staleReason"] = "duplicate"
+
     if cli_path is not None:
         _, expected_args = server_command(cli_path)
         for entry in entries:
             server = entry.get("server")
-            if not isinstance(server, dict):
+            if not isinstance(server, dict) or "staleReason" in entry:
                 continue
             # Any working interpreter will do. Comparing it with the Python that runs
             # this check flags every app that was registered from a different one.

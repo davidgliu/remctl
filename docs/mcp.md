@@ -28,8 +28,8 @@ remctl mcp remove --client codex
 
 | Client | What `remctl mcp install` does | Afterwards |
 | --- | --- | --- |
-| Claude Code | Runs `claude mcp add --scope user --transport stdio remctl -- <python> <remctl> mcp`. An older entry is replaced. | New sessions see the server. In an open session, type `/mcp` to reconnect. Tools appear as `mcp__remctl__<tool>`. |
-| Codex | Runs `codex mcp add remctl -- <python> <remctl> mcp`. | Codex clients that read the same configuration share that entry. |
+| Claude Code | Runs `claude mcp add --scope user --transport stdio remctl -- <python> <remctl> mcp`. An older entry is replaced. With the [Claude Code plugin](../README.md#use-it-in-claude-code) enabled, it adds nothing and removes an older user-scope entry instead. | New sessions see the server. In an open session, type `/mcp` to reconnect. Tools appear as `mcp__remctl__<tool>`, or `mcp__plugin_remctl_remctl__<tool>` through the plugin. |
+| Codex | Runs `codex mcp add remctl -- <python> <remctl> mcp`. With the [Codex plugin](desktop-plugin.md) enabled, it adds nothing and removes an older entry instead, because that entry hides the plugin's sidebar. | Codex clients that read the same configuration share that entry. Restart Codex after a removal. |
 | Claude Desktop and Cowork | Adds `mcpServers.remctl` to `~/Library/Application Support/Claude/claude_desktop_config.json`. Every other key stays as it was, the file keeps its permissions, and a timestamped backup is saved next to it. | Quit and reopen Claude Desktop. The server appears in Claude chats and in Cowork on this Mac. |
 | Hermes Agent | Nothing automatic. `remctl mcp config --format hermes` prints the `mcp_servers` entry for `~/.hermes/config.yaml`. | Paste it, then start a new Hermes session. See [hermes.md](hermes.md). |
 | Other clients | `remctl mcp config` prints JSON, TOML, YAML, and shell snippets. | Paste into the client's MCP settings. |

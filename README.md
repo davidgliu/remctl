@@ -134,7 +134,7 @@ A few things to know:
 
 - **Mods need Claude Code 2.1.287 or later.** Run `claude --version` to check. Older versions still get RemCTL's tools, without the band or `/reminders`.
 - **The Claude app.** Its Code tab shows the band and `/reminders` once the app bundles Claude Code 2.1.287 or later. Until then, it has RemCTL's tools only.
-- **One connection is enough.** If you connected Claude Code before with `remctl mcp install --client claude-code` (onboarding offers it too), remove that connection so Claude doesn't see every RemCTL tool twice: `remctl mcp remove --client claude-code`.
+- **One connection is enough.** With the plugin installed, `remctl mcp install` and onboarding don't add another connection to Claude Code. If you connected Claude Code before with `remctl mcp install --client claude-code`, remove that connection so Claude doesn't see every RemCTL tool twice: `remctl mcp remove --client claude-code`, or run `remctl mcp install` again. `remctl doctor` points it out. Skills or prompts that name a tool such as `mcp__remctl__today` should then use `mcp__plugin_remctl_remctl__today`.
 - **Updates.** Claude Code doesn't update plugins from this marketplace automatically unless you turn on auto-update for it in `/plugin` → Marketplaces. To update by hand, run `claude plugin marketplace update remctl`, then `claude plugin update remctl@remctl`.
 
 ## Use it in Codex
