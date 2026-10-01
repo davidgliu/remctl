@@ -85,7 +85,7 @@ The [MCP guide](docs/mcp.md) has the full tool list and troubleshooting. There's
 
 The RemCTL plugin for Claude Code gives Claude RemCTL's tools and adds **Today**, a [mod](https://code.claude.com/docs/en/plugins/mods/overview) that keeps today's reminders above the prompt. A mod is the part of a plugin that draws in Claude Code's own interface. Today shows how many tasks are left, which ones are overdue, and every list in its Reminders color.
 
-![Today's reminders in a band above the Claude Code prompt](https://cdn.macstories.net/images/uploads/2026/10/01/social-terminal-1-band-1790884561301-77298bb5bf.png)
+![Today's reminders in a band above the Claude Code prompt](https://cdn.macstories.net/images/uploads/2026/10/01/social-terminal-1-band-1790885074819-a012d90b4e.png)
 
 Install RemCTL first, then add the plugin from this repository's marketplace. In Claude Code:
 
@@ -109,7 +109,7 @@ What you get:
 - **`/reminders`.** A pane beside the conversation with today's tasks grouped by list, in your sidebar's order. Press ✓ to complete a task in Reminders, and Undo to bring it back.
 - **Live updates.** The band refreshes as soon as Claude changes a reminder through RemCTL, and every five minutes otherwise.
 
-![The /reminders pane docked beside the conversation](https://cdn.macstories.net/images/uploads/2026/10/01/social-terminal-2-pane-1790884566757-fcfdbd7b7a.png)
+![The /reminders pane docked beside the conversation](https://cdn.macstories.net/images/uploads/2026/10/01/social-terminal-2-pane-1790885078972-d4da08a266.png)
 
 To change how Today looks, open `/config`, where each setting's title starts with "Today:", or run `/plugin configure remctl@remctl`:
 
