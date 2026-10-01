@@ -10924,18 +10924,18 @@ def cmd_stats(a):
     db = open_db()
     due_column = due_filter_expr(db)
     sod = start_of_day()
-    total = db.execute("SELECT COUNT(*) FROM ZREMCDREMINDER WHERE ZMARKEDFORDELETION = 0 AND ZACCOUNT IS NOT NULL").fetchone()[0]
-    active = db.execute("SELECT COUNT(*) FROM ZREMCDREMINDER WHERE ZMARKEDFORDELETION = 0 AND ZCOMPLETED = 0 AND ZACCOUNT IS NOT NULL").fetchone()[0]
-    flagged = db.execute("SELECT COUNT(*) FROM ZREMCDREMINDER WHERE ZMARKEDFORDELETION = 0 AND ZCOMPLETED = 0 AND ZFLAGGED = 1 AND ZACCOUNT IS NOT NULL").fetchone()[0]
-    urgent = db.execute(
-        f"SELECT COUNT(*) FROM ZREMCDREMINDER r WHERE r.ZMARKEDFORDELETION = 0 "
-        f"AND r.ZCOMPLETED = 0 AND r.ZACCOUNT IS NOT NULL AND {urgent_where_clause(db)}"
-    ).fetchone()[0]
-    overdue = db.execute(
-        f"SELECT COUNT(*) FROM ZREMCDREMINDER r LEFT JOIN ZREMCDBASELIST l ON r.ZLIST = l.Z_PK "
-        f"WHERE {LIVE_REMINDER_SQL} AND r.ZCOMPLETED = 0 "
-        f"AND {due_column} IS NOT NULL AND {due_column} < {to_ts(sod)}"
-    ).fetchone()[0]
+
+    def count(where=""):
+        return db.execute(
+            "SELECT COUNT(*) FROM ZREMCDREMINDER r LEFT JOIN ZREMCDBASELIST l ON r.ZLIST = l.Z_PK "
+            f"WHERE {LIVE_REMINDER_SQL}{where}"
+        ).fetchone()[0]
+
+    total = count()
+    active = count(" AND r.ZCOMPLETED = 0")
+    flagged = count(" AND r.ZCOMPLETED = 0 AND r.ZFLAGGED = 1")
+    urgent = count(f" AND r.ZCOMPLETED = 0 AND {urgent_where_clause(db)}")
+    overdue = count(f" AND r.ZCOMPLETED = 0 AND {due_column} IS NOT NULL AND {due_column} < {to_ts(sod)}")
     lists_count = len(q_lists(db))
     sections_count = len(q_sections(db))
     if a.json:
