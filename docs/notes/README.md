@@ -12,6 +12,7 @@ These are dated engineering records: audits, reviews, and the evidence behind ea
 | [2.0.2 validation](release-2.0.2-validation.md) | The installer app, 1.7.1 upgrades through the download, and notarization |
 | [2.0.3 validation](release-2.0.3-validation.md) | The tailnet token in each device's Keychain, tested live with four clients |
 | [2.0.4 validation](release-2.0.4-validation.md) | The tailnet install summary crash and its fix |
+| [2.1.0 validation](release-2.1.0-validation.md) | The Claude Code plugin, the completed-search fix (#54), and plugin-aware installs |
 | [Distribution validation](distribution-validation-2026-09-30.md) | The notarized download, free builds, signing, and permission continuity |
 | [Desktop validation](desktop-validation-2026-09-30.md) | Acceptance testing of the Codex plugin |
 | [Events](events-2026-09-30.md) | The MCP Events implementation and why it's turned off |
