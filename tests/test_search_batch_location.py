@@ -98,6 +98,22 @@ class SearchTests(unittest.TestCase):
         # The same text in notes still matches; a deleted link does not.
         self.assertEqual(self.ids("macstories.net"), [6, 1])
 
+    def test_object_lookups_use_the_reminder_indexes(self):
+        # The store also indexes the deleted flag. When SQLite picked that index,
+        # every reminder scanned every object row: a minute per search (#54).
+        self.db.executescript("""
+            CREATE INDEX ZREMCDOBJECT_ZREMINDER2_INDEX ON ZREMCDOBJECT (ZREMINDER2);
+            CREATE INDEX ZREMCDOBJECT_ZREMINDER4_INDEX ON ZREMCDOBJECT (ZREMINDER4);
+            CREATE INDEX Z_REMCDObject_byConcealed ON ZREMCDOBJECT (ZMARKEDFORDELETION);
+        """)
+        where, params = remctl._search_where(self.db, "x", completed=True)
+        plan = " ; ".join(row[3] for row in self.db.execute(
+            f"EXPLAIN QUERY PLAN SELECT {remctl.rem_cols(self.db)} FROM ZREMCDREMINDER r "
+            f"LEFT JOIN ZREMCDBASELIST l ON r.ZLIST = l.Z_PK WHERE {where}", params))
+        self.assertIn("ZREMCDOBJECT_ZREMINDER2_INDEX", plan)
+        self.assertIn("ZREMCDOBJECT_ZREMINDER4_INDEX", plan)
+        self.assertNotIn("byConcealed", plan)
+
     def test_reminders_in_a_deleted_list_stay_hidden(self):
         # Deleting a list can leave a reminder row that isn't marked deleted
         # itself; Reminders hides it, so every read must too.

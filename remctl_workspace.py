@@ -370,7 +370,7 @@ def rich_link_rows(db, reminder_id):
     metadata = 'ZMETADATA' if 'ZMETADATA' in columns else 'NULL AS ZMETADATA'
     return db.execute(
         f'SELECT ZURL, {metadata} FROM ZREMCDOBJECT WHERE ZREMINDER2=? '
-        "AND ZURL IS NOT NULL AND ZURL != '' AND ZMARKEDFORDELETION=0 ORDER BY Z_PK",
+        "AND ZURL IS NOT NULL AND ZURL != '' AND +ZMARKEDFORDELETION=0 ORDER BY Z_PK",
         (reminder_id,),
     ).fetchall()
 

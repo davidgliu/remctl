@@ -160,7 +160,7 @@ def preload_extras(db, pks):
     try:
         subtask_rows = db.execute(
             f"SELECT ZPARENTREMINDER, COUNT(*) FROM ZREMCDREMINDER "
-            f"WHERE ZPARENTREMINDER IN ({placeholders}) AND ZMARKEDFORDELETION = 0 "
+            f"WHERE ZPARENTREMINDER IN ({placeholders}) AND +ZMARKEDFORDELETION = 0 "
             f"AND ZCOMPLETED = 0 GROUP BY ZPARENTREMINDER",
             pks,
         ).fetchall()
@@ -173,7 +173,7 @@ def preload_extras(db, pks):
         hashtag_rows = db.execute(
             f"SELECT o.ZREMINDER3, h.ZNAME FROM ZREMCDOBJECT o "
             f"JOIN ZREMCDHASHTAGLABEL h ON o.ZHASHTAGLABEL = h.Z_PK "
-            f"WHERE o.ZREMINDER3 IN ({placeholders}) AND o.ZMARKEDFORDELETION = 0",
+            f"WHERE o.ZREMINDER3 IN ({placeholders}) AND +o.ZMARKEDFORDELETION = 0",
             pks,
         ).fetchall()
         hashtags = {pk: [] for pk in pks}
@@ -211,7 +211,7 @@ def preload_attachments(db, pks):
             f"SELECT ZREMINDER, ZFILENAME, ZUTI, ZATTACHMENTTYPERAWVALUE, {saved_sha}, "
             "NULL AS ZWIDTH, NULL AS ZHEIGHT "
             f"FROM ZREMCDSAVEDATTACHMENT "
-            f"WHERE ZREMINDER IN ({placeholders}) AND ZMARKEDFORDELETION = 0",
+            f"WHERE ZREMINDER IN ({placeholders}) AND +ZMARKEDFORDELETION = 0",
             pks,
         ).fetchall()
         object_rows = db.execute(
@@ -220,7 +220,7 @@ def preload_attachments(db, pks):
             f"{object_sha}, ZWIDTH, ZHEIGHT "
             f"FROM ZREMCDOBJECT "
             f"WHERE ZREMINDER2 IN ({placeholders}) AND ZFILENAME IS NOT NULL AND ZFILENAME != '' "
-            "AND ZMARKEDFORDELETION = 0",
+            "AND +ZMARKEDFORDELETION = 0",
             pks,
         ).fetchall()
     except Exception:
@@ -252,7 +252,7 @@ def preload_indicators(db, pks):
     try:
         saved_rows = db.execute(
             f"SELECT ZREMINDER, ZATTACHMENTTYPERAWVALUE FROM ZREMCDSAVEDATTACHMENT "
-            f"WHERE ZREMINDER IN ({placeholders}) AND ZMARKEDFORDELETION = 0",
+            f"WHERE ZREMINDER IN ({placeholders}) AND +ZMARKEDFORDELETION = 0",
             pks,
         ).fetchall()
         for row in saved_rows:
@@ -266,7 +266,7 @@ def preload_indicators(db, pks):
     try:
         object_rows = db.execute(
             f"SELECT ZREMINDER2, ZWIDTH, ZHEIGHT, ZURL, ZFILENAME FROM ZREMCDOBJECT "
-            f"WHERE ZREMINDER2 IN ({placeholders}) AND ZMARKEDFORDELETION = 0 "
+            f"WHERE ZREMINDER2 IN ({placeholders}) AND +ZMARKEDFORDELETION = 0 "
             f"AND ((ZURL IS NOT NULL AND ZURL != '') OR (ZFILENAME IS NOT NULL AND ZFILENAME != ''))",
             pks,
         ).fetchall()
