@@ -106,7 +106,7 @@ What you get:
 
 - **RemCTL's tools.** The plugin starts `~/bin/remctl mcp`, the same server `remctl mcp install` connects, so Claude can read, create, edit, and complete your reminders.
 - **The band above the prompt.** The tasks left today and how many are overdue, a colored chip for each list, and your next few tasks with their due times. Overdue dates are red. Collapse the band with its `[-]` button.
-- **`/reminders`.** A pane beside the conversation with today's tasks grouped by list, in your sidebar's order. Press ✓ to complete a task in Reminders, and Undo to bring it back.
+- **`/reminders`.** A pane with today's tasks grouped by list, in your sidebar's order. It docks beside the conversation in a window at least 110 columns wide, and opens above the prompt in a narrower one. Press ✓ to complete a task in Reminders, and Undo to bring it back.
 - **Live updates.** The band refreshes as soon as Claude changes a reminder through RemCTL, and every five minutes otherwise.
 
 ![The /reminders pane docked beside the conversation](https://cdn.macstories.net/images/uploads/2026/10/01/social-terminal-2-pane-1790885078972-d4da08a266.png)
@@ -126,7 +126,7 @@ To change how Today looks, open `/config`, where each setting's title starts wit
 A few things to know:
 
 - **Mods need Claude Code 2.1.287 or later.** Run `claude --version` to check. Older versions still get RemCTL's tools, without the band or `/reminders`.
-- **The Claude app.** Its Code tab can show mods too, but only once the app's bundled Claude Code is 2.1.287 or later. Claude 2.16120 bundles 2.1.284, so it has RemCTL's tools but not the band yet.
+- **The Claude app.** Its Code tab shows the band and `/reminders` once the app bundles Claude Code 2.1.287 or later. Until then, it has RemCTL's tools only.
 - **One connection is enough.** If you connected Claude Code before with `remctl mcp install --client claude-code` (onboarding offers it too), remove that connection so Claude doesn't see every RemCTL tool twice: `remctl mcp remove --client claude-code`.
 - **Updates.** Claude Code doesn't update plugins from this marketplace automatically unless you turn on auto-update for it in `/plugin` → Marketplaces. To update by hand, run `claude plugin marketplace update remctl`, then `claude plugin update remctl@remctl`.
 
