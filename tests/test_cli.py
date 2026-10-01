@@ -5662,6 +5662,14 @@ class CliTests(unittest.TestCase):
         ):
             self.assertIsNone(self.remctl.bundle_context_from_environment())
 
+    def test_app_path_hint_ignores_a_command_line_too_long_to_be_a_path(self):
+        # An agent's shell wrapper can match as one long "path". Python 3.13,
+        # RemCTL's runtime, raises ENAMETOOLONG when it checks that path.
+        command = "/bin/zsh -c " + "x" * 5000 + " /Applications/Example.app"
+        too_long = OSError(63, "File name too long")
+        with mock.patch.object(self.remctl.Path, "exists", side_effect=too_long):
+            self.assertIsNone(self.remctl.app_bundle_from_path_hint(command))
+
     def test_find_app_bundle_by_identifier_rejects_query_metacharacters(self):
         with mock.patch.object(self.remctl.subprocess, "run") as run:
             self.assertIsNone(self.remctl.find_app_bundle_by_identifier("com.example' || *"))

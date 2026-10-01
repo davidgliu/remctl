@@ -6016,8 +6016,13 @@ def app_bundle_from_path_hint(value):
     match = re.search(r"(/.*?\.app)(?:/|\s|$)", str(value))
     if not match:
         return None
-    path = Path(match.group(1)).expanduser().resolve(strict=False)
-    return path if path.name.endswith(".app") and path.exists() else None
+    try:
+        path = Path(match.group(1)).expanduser().resolve(strict=False)
+        return path if path.name.endswith(".app") and path.exists() else None
+    except OSError:
+        # A long parent command line (an agent's shell wrapper) can match as a
+        # path too long to stat; that is no app, not a doctor failure.
+        return None
 
 
 def find_app_bundle_by_identifier(bundle_id):

@@ -10,6 +10,7 @@
 
 - Reminders from a deleted list no longer show up. Deleting a list can leave one of its reminders behind, unmarked; Reminders hides it, but `today`, `overdue`, `upcoming`, `flagged`, `search`, and `info` listed it as an open task in a list that `lists` couldn't find. Every read now skips reminders whose list is deleted.
 - Searching completed reminders is fast again ([#54](https://github.com/viticci/remctl/issues/54)). Reminders indexes its deleted flag, and SQLite used that index instead of the one for each reminder's own rows, so every reminder read every saved link: about a minute for 8,000 reminders. The same mistake slowed the repeat rules RemCTL reads for every reminder it lists, plus tags, attachments, links, alarms, and subtasks, so long lists, exports, and the Codex workspace were slow too. Thanks to @sacoward, who traced it and proposed the fix.
+- `remctl doctor` no longer crashes with "File name too long" when it runs under a long command line, as AI agents' shells often do. It looks for an app path in the command line that started it, and checking a match thousands of characters long raised an error instead of finding nothing.
 
 ## 2.0.4 — 2026-10-01
 
