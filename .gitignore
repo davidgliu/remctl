@@ -33,3 +33,6 @@ __pycache__/
 # Local distribution builds and pinned runtime downloads
 /.build/
 /dist/
+
+# Written by Claude Code when it loads the mod from a checkout
+/plugins/claude-code/tsconfig.json

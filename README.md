@@ -2,7 +2,7 @@
 
 ![RemCTL's splash screen and today's reminders in Terminal](https://cdn.macstories.net/images/uploads/2026/09/30/15-cli-today-1790776847710-fed98e698d.png)
 
-RemCTL gives you full control of Apple Reminders from the terminal, from AI apps, and from a Reminders workspace inside Codex. It covers the basics (reminders, lists, due dates, flags, and search) as well as features Apple doesn't expose to other apps, such as sections, tags, subtasks, smart lists, and templates.
+RemCTL gives you full control of Apple Reminders from the terminal, from AI apps, from a Reminders workspace inside Codex, and from a Today band in Claude Code. It covers the basics (reminders, lists, due dates, flags, and search) as well as features Apple doesn't expose to other apps, such as sections, tags, subtasks, smart lists, and templates.
 
 Everything goes through **RemCTL Capability Host**, a small signed app that holds the macOS permissions. You grant access to that one app, and the terminal, scripts, and AI apps use it. None of them need their own permissions.
 
@@ -81,6 +81,55 @@ AI apps can read, create, edit, complete, and delete reminders and lists, search
 
 The [MCP guide](docs/mcp.md) has the full tool list and troubleshooting. There's also a guide for [Hermes Agent](docs/hermes.md).
 
+## Use it in Claude Code
+
+The RemCTL plugin for Claude Code gives Claude RemCTL's tools and adds **Today**, a [mod](https://code.claude.com/docs/en/plugins/mods/overview) that keeps today's reminders above the prompt. A mod is the part of a plugin that draws in Claude Code's own interface. Today shows how many tasks are left, which ones are overdue, and every list in its Reminders color.
+
+![Today's reminders in a band above the Claude Code prompt](assets/readme/claude-code-band.png)
+
+Install RemCTL first, then add the plugin from this repository's marketplace. In Claude Code:
+
+```text
+/plugin marketplace add viticci/remctl
+/plugin install remctl@remctl
+/reload-plugins
+```
+
+Or from your shell, before you start Claude Code:
+
+```bash
+claude plugin marketplace add viticci/remctl
+claude plugin install remctl@remctl
+```
+
+What you get:
+
+- **RemCTL's tools.** The plugin starts `~/bin/remctl mcp`, the same server `remctl mcp install` connects, so Claude can read, create, edit, and complete your reminders.
+- **The band above the prompt.** The tasks left today and how many are overdue, a colored chip for each list, and your next few tasks with their due times. Overdue dates are red. Collapse the band with its `[-]` button.
+- **`/reminders`.** A pane beside the conversation with today's tasks grouped by list, in your sidebar's order. Press ✓ to complete a task in Reminders, and Undo to bring it back.
+- **Live updates.** The band refreshes as soon as Claude changes a reminder through RemCTL, and every five minutes otherwise.
+
+![The /reminders pane docked beside the conversation](assets/readme/claude-code-pane.png)
+
+To change how Today looks, open `/config`, where each setting's title starts with "Today:", or run `/plugin configure remctl@remctl`:
+
+| Setting | Default | What it does |
+| --- | --- | --- |
+| Show tasks as | `band` | `band` lists your next tasks under the summary, `compact` shows the summary line only, `status` moves it to the status line, and `pane only` shows nothing until you run `/reminders`. |
+| Tasks in the band | 3 | How many tasks the band lists, from 0 to 8. |
+| Include overdue tasks | on | Counts and lists reminders that were due before today. |
+| Only these lists | empty | Comma-separated list names, such as `Work, Editorial`. Empty means every list. |
+| Complete from the pane | on | Shows the ✓ buttons in `/reminders`. |
+| Refresh every (minutes) | 5 | How often Today reads Reminders again, from 1 to 60. |
+| Open the pane at start | off | Docks `/reminders` beside the conversation when a session starts in a wide window. |
+
+A few things to know:
+
+- **Mods need Claude Code 2.1.287 or later.** Run `claude --version` to check. Older versions still get RemCTL's tools, without the band or `/reminders`.
+- **The Claude app.** Its Code tab can show mods too, but only once the app's bundled Claude Code is 2.1.287 or later. Claude 2.16120 bundles 2.1.284, so it has RemCTL's tools but not the band yet.
+- **One connection is enough.** If you connected Claude Code before with `remctl mcp install --client claude-code` (onboarding offers it too), remove that connection so Claude doesn't see every RemCTL tool twice: `remctl mcp remove --client claude-code`.
+- **Updates.** Claude Code doesn't update plugins from this marketplace automatically unless you turn on auto-update for it in `/plugin` → Marketplaces. To update by hand, run `claude plugin marketplace update remctl`, then `claude plugin update remctl@remctl`.
+
 ## Use it in Codex
 
 The RemCTL plugin for Codex on the Mac adds a full Reminders workspace, with a sidebar that works like the Reminders app: list, column, and calendar layouts, an inspector for every reminder field, drag and drop, a command palette, quick add, and your real list icons and colors. It follows your Mac's light and dark appearance, remembers the layout you pick for each list, and keeps your reminders in Apple Reminders. You can attach specific reminders to a conversation.
@@ -119,10 +168,11 @@ Read [SKILL.md](SKILL.md). In short: use the RemCTL MCP tools when they're conne
 
 ## Uninstall
 
-Disconnect AI apps and remove the Codex plugin first, then run the uninstaller that came with the app (or `./uninstall.sh` from a checkout):
+Disconnect AI apps and remove the Claude Code and Codex plugins first, then run the uninstaller that came with the app (or `./uninstall.sh` from a checkout):
 
 ```bash
 remctl mcp remove
+claude plugin uninstall remctl@remctl && claude plugin marketplace remove remctl
 codex plugin remove remctl@remctl-local && codex plugin marketplace remove remctl-local
 ~/Applications/"RemCTL Capability Host.app"/Contents/Resources/Distribution/uninstall.sh
 ```
@@ -153,7 +203,8 @@ It stops the Capability Host and removes the app, the CLI, its background servic
 | `remctl_runtime.py`, `remctl_serialization.py`, `remctl_images.py`, `remctl_smart_lists.py` | Shared helpers, JSON, images, and smart-list filters |
 | `remctl-capability-host.swift` | The signed host app |
 | `remctl-bridge.swift`, `remctl-private.m`, `remctl-permissions.swift` | EventKit, private ReminderKit, and Full Disk Access helpers |
-| `plugins/`, `.agents/plugins/` | Codex plugin manifest, skills, and marketplace |
+| `plugins/claude-code/`, `.claude-plugin/` | Claude Code plugin (MCP server and the Today mod) and its marketplace |
+| `plugins/remctl/`, `.agents/plugins/` | Codex plugin manifest, skills, and marketplace |
 | `ui/` | Workspace source (only needed to change the interface) |
 | `scripts/` | Release builds, notarization, signing, and live test matrices |
 | `install.sh`, `uninstall.sh` | Installer and uninstaller |

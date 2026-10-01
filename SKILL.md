@@ -75,6 +75,8 @@ The tailnet token can read and change the user's reminders. Print it with `remct
 
 The Codex plugin provides its own RemCTL connection. If the user has it, don't also add `remctl mcp install --client codex`; remove that duplicate with `remctl mcp remove --client codex`. See [docs/desktop-plugin.md](docs/desktop-plugin.md).
 
+The Claude Code plugin (`remctl@remctl`) also provides its own connection, so its tools are named `mcp__plugin_remctl_remctl__<tool>`. If the user has it, don't also add `remctl mcp install --client claude-code`; remove that duplicate with `remctl mcp remove --client claude-code`. See [README.md](README.md#use-it-in-claude-code).
+
 Upgrades keep the install's signing route: `git pull && ./install.sh --from-source` for a build from source (including 2.0 prereleases signed with an Apple Development certificate), or the new release's 'Install RemCTL' (or `./install.sh`) for the download. The installer refuses a signing change without `--migrate-signing`; do not add that flag unless the user asks to switch, because it means granting Full Disk Access again. From 1.7.1, the installer asks in Terminal before replacing the old files; without a terminal it needs `--adopt-existing-install` once. Then run `doctor`. Run `onboard` again only when `doctor` reports a permission problem. Do not copy or re-sign the host app by hand, and do not reset macOS privacy records as a routine fix. Never grant Full Disk Access, Reminders, or Automation to Terminal, Python, Hermes, Codex, or Claude; only the host needs them.
 
 ## Rules that always apply

@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### New
+
+- RemCTL is a Claude Code plugin. Add this repository as a marketplace (`/plugin marketplace add viticci/remctl`), then install `remctl@remctl`. The plugin connects RemCTL's tools and adds Today, a mod that shows today's reminders above the prompt: how many are left, which are overdue, and each list in its Reminders color. `/reminders` opens a pane grouped by list, where ✓ completes a task and Undo brings it back. Today needs Claude Code 2.1.287 or later. See [Use it in Claude Code](README.md#use-it-in-claude-code).
+
 ## 2.0.4 — 2026-10-01
 
 ### Fixes
