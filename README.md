@@ -105,23 +105,30 @@ claude plugin install remctl@remctl
 What you get:
 
 - **RemCTL's tools.** The plugin starts `~/bin/remctl mcp`, the same server `remctl mcp install` connects, so Claude can read, create, edit, and complete your reminders.
-- **The band above the prompt.** The tasks left today and how many are overdue, a colored chip for each list, and your next few tasks with their due times. Overdue dates are red. Collapse the band with its `[-]` button.
-- **`/reminders`.** A pane with today's tasks grouped by list, in your sidebar's order. It docks beside the conversation in a window at least 110 columns wide, and opens above the prompt in a narrower one. Press ✓ to complete a task in Reminders, and Undo to bring it back.
-- **Live updates.** The band refreshes as soon as Claude changes a reminder through RemCTL, and every five minutes otherwise.
+- **The band above the prompt.** How many tasks are left today and how many are overdue, a chip with a count for each list in its color, and your next few tasks with their list and due time. Overdue dates are red, ⚑ marks a flagged task, and `!`, `!!`, or `!!!` shows its priority. When the chips don't fit beside the summary, they get a row of their own. **Open ›** opens `/reminders`. When nothing is left, the band says so; when RemCTL can't read Reminders, it shows the error instead. The band hides while the `/reminders` pane is open, and Claude Code's `[-]` button collapses it.
+- **`/reminders`.** A pane with today's date and counts, and today's tasks grouped by list, in your sidebar's order. It docks beside the conversation in a window at least 110 columns wide, and opens above the prompt in a narrower one. Press ✓ to complete a task in Reminders: the row fills in, then leaves the list. **Undo** brings back the last task you completed, and only that one. **Refresh** reads Reminders again, and "Updated" shows when it last did. The command also adds one line to the conversation, such as "Today: 6 left, 1 overdue.", which Claude can read.
+- **The status line.** With "Show tasks as" set to `status`, the summary moves under the prompt, with your next task: "Today: 6 left · 1 overdue · next: Record AppStories 23:00".
+- **Live updates.** Today reads Reminders again as soon as Claude creates, edits, completes, flags, deletes, or restores a reminder through RemCTL, after `/clear`, and every five minutes otherwise.
 
 ![The /reminders pane docked beside the conversation](https://cdn.macstories.net/images/uploads/2026/10/01/social-terminal-2-pane-1790885078972-d4da08a266.png)
 
-To change how Today looks, open `/config`, where each setting's title starts with "Today:", or run `/plugin configure remctl@remctl`:
+To use the pane from the keyboard, press ctrl+x, then Tab, to move from the prompt to the pane. Tab and Shift-Tab move between its buttons (each task's ✓, Undo, Refresh, and the ✕ that closes the pane), Enter presses the one that's selected, and Esc returns to the prompt. You can also click them. After you complete a task, the selection moves to the next task's ✓, so pressing Enter again completes that one too.
 
-| Setting | Default | What it does |
-| --- | --- | --- |
-| Show tasks as | `band` | `band` lists your next tasks under the summary, `compact` shows the summary line only, `status` moves it to the status line, and `pane only` shows nothing until you run `/reminders`. |
-| Tasks in the band | 3 | How many tasks the band lists, from 0 to 8. |
-| Include overdue tasks | on | Counts and lists reminders that were due before today. |
-| Only these lists | empty | Comma-separated list names, such as `Work, Editorial`. Empty means every list. |
-| Complete from the pane | on | Shows the ✓ buttons in `/reminders`. |
-| Refresh every (minutes) | 5 | How often Today reads Reminders again, from 1 to 60. |
-| Open the pane at start | off | Docks `/reminders` beside the conversation when a session starts in a wide window. |
+To change how Today looks, open `/config`, where each setting's title starts with "Today:", or run `/plugin configure remctl@remctl`. From your shell, pass the settings you want to change as JSON, by key and with every value in quotes, then start a new session:
+
+```bash
+echo '{"display": "status", "refreshMinutes": "2"}' | claude plugin configure remctl@remctl --values-stdin
+```
+
+| Setting | Key | Default | What it does |
+| --- | --- | --- | --- |
+| Show tasks as | `display` | `band` | `band` lists your next tasks under the summary, `compact` shows the summary line only, `status` moves it to the status line, and `pane only` shows nothing until you run `/reminders`. |
+| Tasks in the band | `rows` | 3 | How many tasks the band lists, from 0 to 8. |
+| Include overdue tasks | `includeOverdue` | on | Counts and lists reminders that were due before today. |
+| Only these lists | `lists` | empty | Comma-separated list names, such as `Work, Editorial`. Empty means every list. |
+| Complete from the pane | `checkboxes` | on | Shows the ✓ buttons in `/reminders`. |
+| Refresh every (minutes) | `refreshMinutes` | 5 | How often Today reads Reminders again, from 1 to 60. |
+| Open the pane at start | `openOnStart` | off | Docks `/reminders` beside the conversation when a session starts in a wide window. |
 
 A few things to know:
 
