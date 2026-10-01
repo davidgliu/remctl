@@ -37,4 +37,6 @@ Both apps and the disk image have stapled tickets. From a quarantined copy of th
 
 ## Installed acceptance
 
-The Mac Studio was still on 2.0.0 from the download. Installing 2.0.3 there needs an administrator password once, for the new protected Python runtime.
+The Mac Studio was still on 2.0.0 from the download. 'Install RemCTL' from the notarized disk image opened Terminal and waited for Federico's administrator password, which installs the new protected Python runtime. After he entered it, `remctl --version` reported 2.0.3, and `doctor` reported the host fully ready: protocol 2, private protocol 3, and Full Disk Access, Reminders, and Automation authorized. Its one warning was the expected note that direct database access is blocked for the calling process.
+
+`remctl mcp install --client tailscale` moved the tailnet service from Homebrew's Python to the protected runtime. `/health` reported 2.0.3, and an authenticated `lists` call over the tailnet URL returned 9 lists. The command then crashed while printing its summary, with `NameError: name 'remctl_mcp' is not defined`. That bug has been there since Tailscale access was added, and it is fixed on `main` after 2.0.3, with a test.

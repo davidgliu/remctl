@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixes
+
+- `remctl mcp install --client tailscale` no longer ends with `NameError: name 'remctl_mcp' is not defined`. The setup itself worked, but the summary crashed before it printed the commands for your other devices. The bug dates back to the first Tailscale release; onboarding and `--json` were not affected.
+
 ## 2.0.3 — 2026-10-01
 
 ### Fixes

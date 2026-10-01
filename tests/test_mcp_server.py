@@ -1518,6 +1518,18 @@ class OnboardingFlowTests(unittest.TestCase):
         self.assertEqual(installs, ["codex", "tailscale"])
         self.assertIn("Done.", output)
 
+    def test_mcp_install_prints_the_tailscale_result(self):
+        # `remctl mcp install --client tailscale` reports through print_mcp_result, not the onboarding flow.
+        config = {"port": 7362, "token": "TOKEN", "tailscale": {"hostname": "mac.example.ts.net"}}
+        result = {"client": "tailscale", "ok": True, "url": "https://mac.example.ts.net/remctl", "port": 7362,
+                  "health": {"ok": True}, "snippets": remctl_mcp.remote_snippets(config)}
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.remctl.print_mcp_result(result)
+        self.assertIn("serving at https://mac.example.ts.net/remctl", out.getvalue())
+        self.assertIn("security add-generic-password -U -a remctl -s remctl-mcp-token -w", out.getvalue())
+        self.assertNotIn("TOKEN", out.getvalue())
+
     def test_declining_everything_leaves_hints_and_skips_when_not_a_tty(self):
         clients = [{"id": "codex", "name": "Codex", "installed": True, "configured": False, "current": None}]
         tailscale = {"installed": True, "running": True, "hostname": "mac.example.ts.net", "https": True, "configured": False}

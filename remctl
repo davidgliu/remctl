@@ -13723,6 +13723,8 @@ def print_tailscale_snippets(snippets, *, indent="      "):
 def print_mcp_result(result):
     label = MCP_CLIENT_LABELS.get(result.get("client"), result.get("client"))
     if result.get("client") == "tailscale":
+        import remctl_mcp
+
         if not result.get("ok"):
             print(f"[{C.red('FAIL')}] {label}: {result.get('error') or 'failed'}")
             return
