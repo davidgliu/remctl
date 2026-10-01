@@ -22,4 +22,6 @@ Both apps and the disk image have stapled tickets. From a quarantined copy of th
 
 ## Installed acceptance
 
-The Mac Studio, on 2.0.3, is reinstalled from this disk image after publication. Like every release, it asks for an administrator password once, for the new protected Python runtime.
+The Mac Studio was reinstalled from 2.0.3 with 'Install RemCTL' from this disk image. Federico entered his administrator password for the new protected Python runtime. Afterward `remctl --version` reported 2.0.4, and `doctor` reported the host fully ready: protocol 2, private protocol 3, and Full Disk Access, Reminders, and Automation authorized. Its one warning was the expected note that direct database access is blocked for the calling process.
+
+`remctl mcp install --client tailscale`, without `--json`, exited 0 and printed the full summary with the Keychain step and the Claude Code and Codex commands. The token did not appear in the output. The tailnet service moved to the 2.0.4 runtime, `/health` reported 2.0.4, and an authenticated `lists` call over the tailnet URL returned 9 lists.
