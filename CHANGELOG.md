@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.0.3 — 2026-10-01
+
+### Fixes
+
+- Setting up another device on your tailnet no longer puts the endpoint's token in your shell files ([#51](https://github.com/viticci/remctl/issues/51)). The Codex instructions said to export it from `~/.zshrc`, which is often synced or committed with other dotfiles, and Codex by default passes variables like it to every shell command it runs. The other commands had the token in them too, so it landed in shell history and app config files. Now `remctl mcp config --format tailscale` prints commands without the token. Each device saves it once in its login Keychain, and Claude Code (`headersHelper`), Codex (`http_headers_helper`), Claude Desktop, and Hermes (`secrets.command`) read it from there when they connect. `remctl mcp token` marks the token as sensitive, and `remctl mcp install --client tailscale --json` no longer includes it. If you followed the old instructions, run `remctl mcp token --rotate`, save the new token in the Keychain on each device as [mcp.md](docs/mcp.md#1-save-the-token-on-the-other-mac) describes, and delete the old `export` line.
+
 ## 2.0.2 — 2026-09-30
 
 ### Fixes
