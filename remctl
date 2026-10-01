@@ -2085,6 +2085,15 @@ def sort_reminder_rows_by_identifier_order(rows, identifier_order):
     return [row for _, row in sorted(enumerate(rows), key=key)]
 
 
+# What every reminder read requires, so RemCTL shows what Reminders shows: the
+# reminder isn't deleted, it belongs to an account, and its list still exists
+# and isn't deleted either. Deleting a list can leave reminder rows behind.
+LIVE_REMINDER_SQL = (
+    "r.ZMARKEDFORDELETION = 0 AND r.ZACCOUNT IS NOT NULL "
+    "AND l.Z_PK IS NOT NULL AND l.ZMARKEDFORDELETION = 0"
+)
+
+
 def q_reminders(
     db,
     list_pk=None,
@@ -2099,14 +2108,14 @@ def q_reminders(
         if manual_order and list_pk is not None
         else []
     )
-    c, params = ["r.ZMARKEDFORDELETION = 0", "r.ZACCOUNT IS NOT NULL"], []
+    c, params = [LIVE_REMINDER_SQL], []
     if not completed: c.append("r.ZCOMPLETED = 0")
     if list_pk is not None: c.append("r.ZLIST = ?"); params.append(list_pk)
     if parent_pk is not None: c.append("r.ZPARENTREMINDER = ?"); params.append(parent_pk)
     elif top_level: c.append("(r.ZPARENTREMINDER IS NULL OR r.ZPARENTREMINDER = 0)")
     query = (
         f"SELECT {rem_cols(db)} FROM ZREMCDREMINDER r LEFT JOIN ZREMCDBASELIST l "
-        f"ON r.ZLIST = l.Z_PK WHERE {' AND '.join(c)} AND l.Z_PK IS NOT NULL "
+        f"ON r.ZLIST = l.Z_PK WHERE {' AND '.join(c)} "
         f"ORDER BY r.Z_PK"
     )
     if not identifier_order:
@@ -2136,7 +2145,7 @@ def q_reminders_for_lists(
     has_identifier_order = any(identifier_orders.values())
     placeholders = ", ".join("?" for _ in list_pks)
     order_cases = " ".join(f"WHEN {int(pk)} THEN {idx}" for idx, pk in enumerate(list_pks))
-    c = ["r.ZMARKEDFORDELETION = 0", "r.ZACCOUNT IS NOT NULL", f"r.ZLIST IN ({placeholders})"]
+    c = [LIVE_REMINDER_SQL, f"r.ZLIST IN ({placeholders})"]
     if not completed:
         c.append("r.ZCOMPLETED = 0")
     if top_level:
@@ -2170,8 +2179,7 @@ def q_reminder(db, pk):
     return db.execute(
         f"SELECT {rem_cols(db)} FROM ZREMCDREMINDER r LEFT JOIN ZREMCDBASELIST l "
         f"ON r.ZLIST = l.Z_PK "
-        f"WHERE r.Z_PK = ? AND r.ZMARKEDFORDELETION = 0 AND r.ZACCOUNT IS NOT NULL "
-        f"AND l.Z_PK IS NOT NULL",
+        f"WHERE r.Z_PK = ? AND {LIVE_REMINDER_SQL}",
         (pk,)
     ).fetchone()
 
@@ -2181,8 +2189,8 @@ def q_reminder_by_identifier(db, identifier):
     return db.execute(
         f"SELECT {rem_cols(db)} FROM ZREMCDREMINDER r LEFT JOIN ZREMCDBASELIST l "
         f"ON r.ZLIST = l.Z_PK "
-        f"WHERE lower(r.ZCKIDENTIFIER) = lower(?) AND r.ZMARKEDFORDELETION = 0 AND r.ZACCOUNT IS NOT NULL "
-        f"AND l.Z_PK IS NOT NULL ORDER BY r.Z_PK DESC LIMIT 1",
+        f"WHERE lower(r.ZCKIDENTIFIER) = lower(?) AND {LIVE_REMINDER_SQL} "
+        f"ORDER BY r.Z_PK DESC LIMIT 1",
         (identifier,)
     ).fetchone()
 
@@ -2192,9 +2200,7 @@ def q_recent_reminder_by_title(db, title, *, list_pk=None, within_seconds=10):
         return None
     cutoff = to_ts(datetime.now()) - within_seconds
     clauses = [
-        "r.ZMARKEDFORDELETION = 0",
-        "r.ZACCOUNT IS NOT NULL",
-        "l.Z_PK IS NOT NULL",
+        LIVE_REMINDER_SQL,
         "lower(r.ZTITLE) = lower(?)",
         "r.ZCREATIONDATE IS NOT NULL",
         "r.ZCREATIONDATE >= ?",
@@ -2828,7 +2834,7 @@ def _search_where(db, query, completed=False, list_pk=None):
         )
         params.append(folded)
     clauses = [
-        "r.ZMARKEDFORDELETION = 0", "r.ZACCOUNT IS NOT NULL", "l.Z_PK IS NOT NULL",
+        LIVE_REMINDER_SQL,
         f"({' OR '.join(fields)})",
     ]
     if not completed:
@@ -2867,24 +2873,24 @@ def q_due_today(db, include_overdue=True):
         w = f"{due_column} >= {to_ts(sod)} AND {due_column} < {to_ts(eod)}"
     return db.execute(
         f"SELECT {rem_cols(db)} FROM ZREMCDREMINDER r LEFT JOIN ZREMCDBASELIST l "
-        f"ON r.ZLIST = l.Z_PK WHERE r.ZMARKEDFORDELETION = 0 AND r.ZCOMPLETED = 0 AND r.ZACCOUNT IS NOT NULL "
-        f"AND l.Z_PK IS NOT NULL AND {w} ORDER BY {due_column}"
+        f"ON r.ZLIST = l.Z_PK WHERE {LIVE_REMINDER_SQL} AND r.ZCOMPLETED = 0 "
+        f"AND {w} ORDER BY {due_column}"
     ).fetchall()
 
 def q_flagged(db):
     due_column = due_expr()
     return db.execute(
         f"SELECT {rem_cols(db)} FROM ZREMCDREMINDER r LEFT JOIN ZREMCDBASELIST l "
-        f"ON r.ZLIST = l.Z_PK WHERE r.ZMARKEDFORDELETION = 0 AND r.ZCOMPLETED = 0 AND r.ZACCOUNT IS NOT NULL "
-        f"AND l.Z_PK IS NOT NULL AND r.ZFLAGGED = 1 ORDER BY {due_column} NULLS LAST"
+        f"ON r.ZLIST = l.Z_PK WHERE {LIVE_REMINDER_SQL} AND r.ZCOMPLETED = 0 "
+        f"AND r.ZFLAGGED = 1 ORDER BY {due_column} NULLS LAST"
     ).fetchall()
 
 def q_urgent(db):
     due_column = due_expr()
     return db.execute(
         f"SELECT {rem_cols(db)} FROM ZREMCDREMINDER r LEFT JOIN ZREMCDBASELIST l "
-        f"ON r.ZLIST = l.Z_PK WHERE r.ZMARKEDFORDELETION = 0 AND r.ZCOMPLETED = 0 AND r.ZACCOUNT IS NOT NULL "
-        f"AND l.Z_PK IS NOT NULL AND {urgent_where_clause(db)} ORDER BY {due_column} NULLS LAST"
+        f"ON r.ZLIST = l.Z_PK WHERE {LIVE_REMINDER_SQL} AND r.ZCOMPLETED = 0 "
+        f"AND {urgent_where_clause(db)} ORDER BY {due_column} NULLS LAST"
     ).fetchall()
 
 def q_upcoming(db, days=7):
@@ -2893,8 +2899,8 @@ def q_upcoming(db, days=7):
     due_column = due_filter_expr(db)
     return db.execute(
         f"SELECT {rem_cols(db)} FROM ZREMCDREMINDER r LEFT JOIN ZREMCDBASELIST l "
-        f"ON r.ZLIST = l.Z_PK WHERE r.ZMARKEDFORDELETION = 0 AND r.ZCOMPLETED = 0 AND r.ZACCOUNT IS NOT NULL "
-        f"AND l.Z_PK IS NOT NULL AND {due_column} IS NOT NULL "
+        f"ON r.ZLIST = l.Z_PK WHERE {LIVE_REMINDER_SQL} AND r.ZCOMPLETED = 0 "
+        f"AND {due_column} IS NOT NULL "
         f"AND {due_column} >= {to_ts(sod)} AND {due_column} < {to_ts(future)} "
         f"ORDER BY {due_column}"
     ).fetchall()
@@ -2905,8 +2911,8 @@ def q_overdue(db):
     due_column = due_filter_expr(db)
     return db.execute(
         f"SELECT {rem_cols(db)} FROM ZREMCDREMINDER r LEFT JOIN ZREMCDBASELIST l "
-        f"ON r.ZLIST = l.Z_PK WHERE r.ZMARKEDFORDELETION = 0 AND r.ZCOMPLETED = 0 AND r.ZACCOUNT IS NOT NULL "
-        f"AND l.Z_PK IS NOT NULL AND {due_column} IS NOT NULL "
+        f"ON r.ZLIST = l.Z_PK WHERE {LIVE_REMINDER_SQL} AND r.ZCOMPLETED = 0 "
+        f"AND {due_column} IS NOT NULL "
         f"AND {due_column} < {to_ts(sod)} ORDER BY {due_column}"
     ).fetchall()
 
@@ -10927,8 +10933,8 @@ def cmd_stats(a):
     ).fetchone()[0]
     overdue = db.execute(
         f"SELECT COUNT(*) FROM ZREMCDREMINDER r LEFT JOIN ZREMCDBASELIST l ON r.ZLIST = l.Z_PK "
-        f"WHERE r.ZMARKEDFORDELETION = 0 AND r.ZCOMPLETED = 0 AND r.ZACCOUNT IS NOT NULL "
-        f"AND l.Z_PK IS NOT NULL AND {due_column} IS NOT NULL AND {due_column} < {to_ts(sod)}"
+        f"WHERE {LIVE_REMINDER_SQL} AND r.ZCOMPLETED = 0 "
+        f"AND {due_column} IS NOT NULL AND {due_column} < {to_ts(sod)}"
     ).fetchone()[0]
     lists_count = len(q_lists(db))
     sections_count = len(q_sections(db))

@@ -98,6 +98,21 @@ class SearchTests(unittest.TestCase):
         # The same text in notes still matches; a deleted link does not.
         self.assertEqual(self.ids("macstories.net"), [6, 1])
 
+    def test_reminders_in_a_deleted_list_stay_hidden(self):
+        # Deleting a list can leave a reminder row that isn't marked deleted
+        # itself; Reminders hides it, so every read must too.
+        self.db.execute(
+            "INSERT INTO ZREMCDBASELIST (Z_PK, ZNAME, ZCKIDENTIFIER, ZMARKEDFORDELETION) VALUES (4, 'Weekly 530', 'L4', 1)"
+        )
+        yesterday = remctl.to_ts(remctl.start_of_day()) - 86400
+        self.db.execute(
+            "INSERT INTO ZREMCDREMINDER (Z_PK, ZTITLE, ZLIST, ZDUEDATE) VALUES (7, 'App Radar', 4, ?)", (yesterday,)
+        )
+        self.assertEqual(self.ids("App Radar"), [])
+        self.assertNotIn(7, [row["Z_PK"] for row in remctl.q_due_today(self.db)])
+        self.assertNotIn(7, [row["Z_PK"] for row in remctl.q_overdue(self.db)])
+        self.assertIsNone(remctl.q_reminder(self.db, 7))
+
     def test_matching_ignores_case_and_accents(self):
         self.assertEqual(self.ids("CAFE"), [2])
         self.assertEqual(self.ids("café"), [2])
