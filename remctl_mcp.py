@@ -3059,11 +3059,10 @@ def install_tailscale(cli_path: Path, *, port: int | None = None, runner: Callab
         "ok": bool(health and health["ok"]),
         "url": url,
         "port": config["port"],
-        "token": config["token"],
         "health": health,
         "agent": agent,
         "snippets": remote_snippets(config),
-        "note": ("Devices on your tailnet can now connect with the token. Reprint the commands with `remctl mcp config --format tailscale`."
+        "note": ("Devices on your tailnet can now connect. Print the token with `remctl mcp token` and the commands with `remctl mcp config --format tailscale`."
                  if health and health["ok"] else "The endpoint did not become healthy. Check `remctl mcp status` before connecting devices."),
     }
 
@@ -3103,27 +3102,49 @@ def tailscale_overview(*, runner: Callable[..., Any] | None = None) -> dict[str,
     return overview
 
 
-def remote_snippets(config: dict[str, Any]) -> dict[str, str]:
-    """Ready-to-paste connection commands for devices on the tailnet."""
+# Devices on the tailnet keep the token in their own login Keychain, never in a
+# command, shell file, or client config. `-w` comes last so `security` asks for
+# the token instead of taking it as an argument, which keeps it out of shell
+# history; `-U` replaces the saved token after a rotation.
+KEYCHAIN_SERVICE = "remctl-mcp-token"
+KEYCHAIN_SAVE_COMMAND = f"security add-generic-password -U -a remctl -s {KEYCHAIN_SERVICE} -w"
+KEYCHAIN_READ_COMMAND = f"/usr/bin/security find-generic-password -s {KEYCHAIN_SERVICE} -w"
+# Claude Code (headersHelper) and Codex (http_headers_helper) run this with
+# `sh -c` each time they connect and send the JSON it prints as headers. `&&`
+# makes it fail instead of sending an empty token when the item is missing.
+HEADERS_HELPER = f"""t=$({KEYCHAIN_READ_COMMAND}) && printf '{{"Authorization":"Bearer %s"}}' "$t\""""
+
+
+def remote_snippets(config: dict[str, Any], *, name: str = SERVER_NAME) -> dict[str, str]:
+    """Connection commands for devices on the tailnet. None of them contains the token."""
 
     url = tailscale_url(config) or f"http://127.0.0.1:{config.get('port', HTTP_DEFAULT_PORT)}/"
-    token = config["token"]
-    desktop = {
-        "mcpServers": {
-            SERVER_NAME: {
-                "command": "npx",
-                "args": ["-y", "mcp-remote", url, "--header", "Authorization:${AUTH_HEADER}"],
-                "env": {"AUTH_HEADER": f"Bearer {token}"},
-            }
-        }
-    }
+    # JSON allows \u0027 for a single quote, so the whole object fits in one single-quoted shell word.
+    claude_json = json.dumps({"type": "http", "url": url, "headersHelper": HEADERS_HELPER}, separators=(",", ":")).replace("'", "\\u0027")
+    # mcp-remote expands ${AUTH_HEADER} from its own environment, so the token never appears in a process's arguments.
+    desktop_script = (f"t=$({KEYCHAIN_READ_COMMAND}) && export AUTH_HEADER=\"Bearer $t\" && "
+                      f"exec npx -y mcp-remote {_shell_quote(url)} --header 'Authorization:${{AUTH_HEADER}}'")
+    desktop = {"mcpServers": {name: {"command": "/bin/sh", "args": ["-c", desktop_script]}}}
+    hermes_helper = f"t=$({KEYCHAIN_READ_COMMAND}) && printf \"REMCTL_MCP_TOKEN=%s\\n\" \"$t\""
     return {
         "url": url,
-        "token": token,
-        "claude-code": f'claude mcp add --transport http --scope user {SERVER_NAME} {url} --header "Authorization: Bearer {token}"',
-        "codex": f"export REMCTL_MCP_TOKEN={token}   # add to ~/.zshrc\ncodex mcp add {SERVER_NAME} --url {url} --bearer-token-env-var REMCTL_MCP_TOKEN",
+        "keychain": KEYCHAIN_SAVE_COMMAND,
+        "claude-code": f"claude mcp add-json --scope user {name} '{claude_json}'",
+        "codex": f"[mcp_servers.{name}]\nurl = {json.dumps(url)}\nhttp_headers_helper = {json.dumps(HEADERS_HELPER)}\n",
         "claude-desktop": json.dumps(desktop, indent=2),
-        "json": json.dumps({"mcpServers": {SERVER_NAME: {"type": "http", "url": url, "headers": {"Authorization": f"Bearer {token}"}}}}, indent=2),
+        # Hermes reads secrets from one helper (secrets.command) and fills ${REMCTL_MCP_TOKEN} from its output.
+        "hermes": (
+            "secrets:\n"
+            "  command:\n"
+            "    enabled: true\n"
+            f"    command: '{hermes_helper}'\n"
+            "mcp_servers:\n"
+            f"  {name}:\n"
+            f"    url: {json.dumps(url)}\n"
+            "    headers:\n"
+            "      Authorization: \"Bearer ${REMCTL_MCP_TOKEN}\"\n"
+        ),
+        "json": json.dumps({"mcpServers": {name: {"type": "http", "url": url, "headers": {"Authorization": "Bearer <token>"}}}}, indent=2),
         "curl": f'curl -s {url}/health',
     }
 

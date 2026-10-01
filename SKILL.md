@@ -68,8 +68,10 @@ remctl mcp install --client codex            # codex mcp add
 remctl mcp install --client claude-desktop   # Claude Desktop and Cowork; the user must restart Claude
 remctl mcp install --client tailscale        # HTTPS endpoint for the user's other tailnet devices
 remctl mcp status
-remctl mcp config --format tailscale         # commands and token for another device
+remctl mcp config --format tailscale         # commands for another device; the token stays in its Keychain
 ```
+
+The tailnet token can read and change the user's reminders. Print it with `remctl mcp token` only when the user asks, and never write it into a command, shell file, config file, or chat. The user saves it on the other device with `security add-generic-password -U -a remctl -s remctl-mcp-token -w`, which prompts for it.
 
 The Codex plugin provides its own RemCTL connection. If the user has it, don't also add `remctl mcp install --client codex`; remove that duplicate with `remctl mcp remove --client codex`. See [docs/desktop-plugin.md](docs/desktop-plugin.md).
 

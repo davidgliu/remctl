@@ -1391,16 +1391,52 @@ class HTTPConfigAndTailscaleTests(unittest.TestCase):
         self.assertEqual(plist["Label"], remctl_mcp.HTTP_AGENT_LABEL)
         self.assertEqual(plist["ProgramArguments"], [command, *args, "serve", "--http"])
         self.assertTrue(plist["KeepAlive"])
-        config = {"port": 7362, "token": "tok", "tailscale": {"hostname": "mac.example.ts.net", "path": "/remctl"}}
+        config = {"port": 7362, "token": "secret-token-value", "tailscale": {"hostname": "mac.example.ts.net", "path": "/remctl"}}
         self.assertEqual(remctl_mcp.tailscale_url(config), "https://mac.example.ts.net/remctl")
         snippets = remctl_mcp.remote_snippets(config)
-        self.assertIn("--transport http", snippets["claude-code"])
-        self.assertIn("Bearer tok", snippets["claude-code"])
-        self.assertIn("--bearer-token-env-var REMCTL_MCP_TOKEN", snippets["codex"])
-        desktop = json.loads(snippets["claude-desktop"])
-        self.assertEqual(desktop["mcpServers"]["remctl"]["args"][1], "mcp-remote")
-        self.assertEqual(json.loads(snippets["json"])["mcpServers"]["remctl"]["headers"]["Authorization"], "Bearer tok")
+        for key, value in snippets.items():
+            self.assertNotIn("secret-token-value", value, key)
         self.assertEqual(remctl_mcp.mask_token("abcdefghijklmnop"), "abcd…op")
+
+    def test_remote_snippets_read_the_token_from_the_keychain(self):
+        import tomllib
+
+        url = "https://mac.example.ts.net/remctl"
+        snippets = remctl_mcp.remote_snippets({"port": 7362, "token": "x", "tailscale": {"hostname": "mac.example.ts.net", "path": "/remctl"}})
+        helper = remctl_mcp.HEADERS_HELPER
+        read = remctl_mcp.KEYCHAIN_READ_COMMAND
+        self.assertIn(read, helper)
+
+        # The helper prints the header JSON, and fails without output when the Keychain item is missing.
+        found = subprocess.run(["/bin/sh", "-c", helper.replace(read, "printf tok")], capture_output=True, text=True)
+        self.assertEqual((found.returncode, json.loads(found.stdout)), (0, {"Authorization": "Bearer tok"}))
+        missing = subprocess.run(["/bin/sh", "-c", helper.replace(read, "false")], capture_output=True, text=True)
+        self.assertNotEqual(missing.returncode, 0)
+        self.assertEqual(missing.stdout, "")
+
+        # Claude Code: the shell hands add-json the exact JSON.
+        command = snippets["claude-code"]
+        self.assertTrue(command.startswith("claude mcp add-json --scope user remctl '"))
+        argv = subprocess.run(["/bin/sh", "-c", "printf '%s\\0' " + command.removeprefix("claude ")],
+                              capture_output=True, text=True, check=True).stdout.split("\0")[:-1]
+        self.assertEqual(argv[:5], ["mcp", "add-json", "--scope", "user", "remctl"])
+        self.assertEqual(json.loads(argv[5]), {"type": "http", "url": url, "headersHelper": helper})
+
+        codex = tomllib.loads(snippets["codex"])["mcp_servers"]["remctl"]
+        self.assertEqual(codex, {"url": url, "http_headers_helper": helper})
+
+        desktop = json.loads(snippets["claude-desktop"])["mcpServers"]["remctl"]
+        self.assertEqual(desktop["command"], "/bin/sh")
+        self.assertIn(f"exec npx -y mcp-remote {url} --header 'Authorization:${{AUTH_HEADER}}'", desktop["args"][1])
+        self.assertIn('Authorization: "Bearer ${REMCTL_MCP_TOKEN}"', snippets["hermes"])
+        self.assertEqual(snippets["keychain"], "security add-generic-password -U -a remctl -s remctl-mcp-token -w")
+
+        # The docs show the same commands, with placeholders for the Mac's name.
+        placeholder = remctl_mcp.remote_snippets({"port": 7362, "token": "x", "tailscale": {"hostname": "<your-mac>.<tailnet>.ts.net"}})
+        mcp_doc = (ROOT / "docs" / "mcp.md").read_text(encoding="utf-8")
+        self.assertIn(placeholder["claude-code"], mcp_doc)
+        self.assertIn(placeholder["codex"].rstrip("\n"), mcp_doc)
+        self.assertIn(placeholder["hermes"], (ROOT / "docs" / "hermes.md").read_text(encoding="utf-8"))
 
     def test_install_tailscale_fails_closed_without_prerequisites(self):
         with mock.patch.object(remctl_mcp, "tailscale_status", return_value={"installed": False, "running": False, "hostname": None, "ips": [], "https": False}):
@@ -1433,7 +1469,7 @@ class OnboardingFlowTests(unittest.TestCase):
             installs.append(client)
             if client == "tailscale":
                 return {"client": "tailscale", "ok": True, "url": "https://mac.example.ts.net/remctl", "port": 7362, "health": {"ok": True},
-                        "snippets": {"claude-code": "claude mcp add ... TOKEN", "codex": "export X\ncodex mcp add ..."}}
+                        "snippets": remctl_mcp.remote_snippets({"port": 7362, "token": "TOKEN", "tailscale": {"hostname": "mac.example.ts.net"}})}
             return {"client": client, "ok": True, "note": f"{client} note"}
 
         overview = {"server": {"command": ["python", "remctl", "mcp"]}, "clients": clients, "tailscale": tailscale}
@@ -1476,7 +1512,9 @@ class OnboardingFlowTests(unittest.TestCase):
         self.assertNotIn("Claude Desktop and Cowork:", output, "apps that are not installed are not listed")
         self.assertIn("Set this up now? [y/N]", output)
         self.assertIn("Serving at https://mac.example.ts.net/remctl", output)
-        self.assertIn("claude mcp add ... TOKEN", output)
+        self.assertIn("security add-generic-password -U -a remctl -s remctl-mcp-token -w", output)
+        self.assertIn("claude mcp add-json --scope user remctl", output)
+        self.assertNotIn("TOKEN", output)
         self.assertEqual(installs, ["codex", "tailscale"])
         self.assertIn("Done.", output)
 

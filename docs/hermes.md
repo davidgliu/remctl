@@ -59,9 +59,15 @@ The bundled skill also says to put project task management in GitHub Issues or N
 
 ## Other devices
 
-Hermes on another machine in your tailnet can use the HTTP endpoint instead. Run `remctl mcp install --client tailscale` on the Mac, then `remctl mcp config --format tailscale`, and add a `url` entry with the bearer header:
+Hermes on another machine in your tailnet can use the HTTP endpoint instead. Run `remctl mcp install --client tailscale` on the Mac, then save the token in the other machine's Keychain as described in [mcp.md](mcp.md#1-save-the-token-on-the-other-mac).
+
+Hermes fills `${REMCTL_MCP_TOKEN}` from its `secrets.command` helper, which reads the token from the Keychain when Hermes starts. `remctl mcp config --format tailscale` prints this block with your Mac's URL:
 
 ```yaml
+secrets:
+  command:
+    enabled: true
+    command: 't=$(/usr/bin/security find-generic-password -s remctl-mcp-token -w) && printf "REMCTL_MCP_TOKEN=%s\n" "$t"'
 mcp_servers:
   remctl:
     url: "https://<your-mac>.<tailnet>.ts.net/remctl"
@@ -69,4 +75,6 @@ mcp_servers:
       Authorization: "Bearer ${REMCTL_MCP_TOKEN}"
 ```
 
-Put `REMCTL_MCP_TOKEN=<token>` in `~/.hermes/.env` on that machine.
+Hermes runs one `secrets.command`. If your config already has one, append the RemCTL part to it after a `;`, so the helper prints both lines. Then run `hermes mcp test remctl`; the first line should say `Command helper: applied` and count the RemCTL secret.
+
+On Linux, replace the Keychain read with `secret-tool lookup service remctl-mcp-token`. If you'd rather use `~/.hermes/.env`, Hermes's own secrets file, keep it at mode 0600 and out of any folder you sync or commit.

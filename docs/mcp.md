@@ -48,7 +48,7 @@ The bundle is written to `~/Downloads/RemCTL.mcpb`. Double-click it, or drag it 
 
 ## Connect your other devices (Tailscale)
 
-Tailscale is a private network between your devices. If it is installed on the Mac, RemCTL can serve the MCP tools to Claude Code, Codex, and Claude Desktop on any other device in that network. Nothing is exposed to the public internet.
+Tailscale is a private network between your devices. If it is installed on the Mac, RemCTL can serve the MCP tools to Claude Code, Codex, Claude Desktop, and Hermes on any other device in that network. Nothing is exposed to the public internet.
 
 `remctl onboard` offers this step when Tailscale is detected. To run it directly:
 
@@ -62,26 +62,61 @@ This does three things:
 2. Installs a LaunchAgent, `net.macstories.remctl.mcp-http`, that runs `remctl mcp serve --http` on `127.0.0.1:7362` and restarts it after reboots. The endpoint is bound to the loopback interface only.
 3. Runs `tailscale serve --bg --https=443 --set-path=/remctl http://127.0.0.1:7362`. Tailscale terminates HTTPS with a certificate for your Mac's tailnet name and forwards only tailnet traffic.
 
-The endpoint is then `https://<your-mac>.<tailnet>.ts.net/remctl`. RemCTL prints the commands for the other device. Reprint them, with the token, any time:
+The endpoint is then `https://<your-mac>.<tailnet>.ts.net/remctl`. Print the setup commands for another device any time:
 
 ```bash
 remctl mcp config --format tailscale
 ```
 
-On another Mac with Claude Code:
+The commands don't contain the token. Each device keeps the token in its own login Keychain, and each app reads it from there when it connects. The token never goes into a command, a shell file such as `~/.zshrc`, or an app's config file. Those files are often synced or committed along with other dotfiles.
+
+### 1. Save the token on the other Mac
+
+On the Mac with RemCTL, print the token:
 
 ```bash
-claude mcp add --transport http --scope user remctl https://<your-mac>.<tailnet>.ts.net/remctl --header "Authorization: Bearer <token>"
+remctl mcp token
 ```
 
-On another Mac with Codex:
+On the other Mac, save it in the login Keychain. `security` asks for the token, so it stays out of your shell history:
 
 ```bash
-export REMCTL_MCP_TOKEN=<token>        # add to ~/.zshrc
-codex mcp add remctl --url https://<your-mac>.<tailnet>.ts.net/remctl --bearer-token-env-var REMCTL_MCP_TOKEN
+security add-generic-password -U -a remctl -s remctl-mcp-token -w
 ```
 
-Claude Desktop on another Mac cannot connect to a private URL directly. `remctl mcp config --format tailscale` prints a config entry that uses the `mcp-remote` bridge (needs Node) to connect it.
+After a rotation, run the same command again to replace the token.
+
+### 2. Connect each app
+
+Every app runs the same one-line helper when it connects. The helper reads the token from the Keychain and prints the `Authorization` header as JSON. If the Keychain item is missing, it fails instead of sending an empty token:
+
+```sh
+t=$(/usr/bin/security find-generic-password -s remctl-mcp-token -w) && printf '{"Authorization":"Bearer %s"}' "$t"
+```
+
+**Claude Code** runs it as `headersHelper`. `\u0027` is the JSON escape for a single quote, so the whole object fits in one single-quoted shell argument:
+
+```bash
+claude mcp add-json --scope user remctl '{"type":"http","url":"https://<your-mac>.<tailnet>.ts.net/remctl","headersHelper":"t=$(/usr/bin/security find-generic-password -s remctl-mcp-token -w) && printf \u0027{\"Authorization\":\"Bearer %s\"}\u0027 \"$t\""}'
+```
+
+**Codex** runs it as `http_headers_helper`. `codex mcp add` has no option for it, so add this table to `~/.codex/config.toml`:
+
+```toml
+[mcp_servers.remctl]
+url = "https://<your-mac>.<tailnet>.ts.net/remctl"
+http_headers_helper = "t=$(/usr/bin/security find-generic-password -s remctl-mcp-token -w) && printf '{\"Authorization\":\"Bearer %s\"}' \"$t\""
+```
+
+The token never becomes an environment variable, so the shell commands Codex runs for the model can't read it.
+
+**Claude Desktop** can't connect to a private URL directly. It starts the `mcp-remote` bridge (needs Node) through `/bin/sh`, which reads the token from the Keychain first and hands it to the bridge in its environment, not its arguments. `remctl mcp config --format tailscale` prints the entry to merge into `claude_desktop_config.json`.
+
+**Hermes Agent** reads the token through its `secrets.command` helper. See [hermes.md](hermes.md#other-devices).
+
+**Other clients** need the URL and an `Authorization: Bearer <token>` header. Give them the token through their own secret store or header helper, not a file you sync or commit.
+
+**Linux and other systems** have no `security` command. Save the token with the system's credential store, for example `secret-tool store --label="RemCTL MCP token" service remctl-mcp-token` on Linux, and replace the Keychain read in the helper with `secret-tool lookup service remctl-mcp-token`. Without a credential store, keep the token in a file only you can read (`chmod 600`), outside any folder you sync or commit, and read it with `cat`.
 
 Requirements: Tailscale running and signed in on the Mac, MagicDNS enabled, and HTTPS certificates enabled for the tailnet (Tailscale admin console, DNS page). Onboarding and `remctl mcp install` explain exactly which of these is missing.
 
@@ -89,8 +124,8 @@ Manage the endpoint:
 
 ```bash
 remctl mcp status                     # URL, service state, serve mount, health
-remctl mcp token                      # print the token
-remctl mcp token --rotate             # new token; reconnect devices afterwards
+remctl mcp token                      # print the token (sensitive)
+remctl mcp token --rotate             # new token; save it on each device again
 remctl mcp remove --client tailscale  # stop serving; the token file stays for later
 ```
 
@@ -98,7 +133,9 @@ remctl mcp remove --client tailscale  # stop serving; the token file stays for l
 
 Security notes:
 
-- MCP requests need `Authorization: Bearer <token>`; requests without it get 401. `GET /health` is public. Rotate the token if it leaks.
+- MCP requests need `Authorization: Bearer <token>`; requests without it get 401. `GET /health` is public.
+- The token can read and change your reminders. If it was ever committed, synced, pasted into a chat, or shared, run `remctl mcp token --rotate` and save the new token on each device. Apps read it the next time they start or reconnect, so you don't need to add them again.
+- On the Mac, the token lives in `~/.config/remctl/mcp-http.json` (mode 0600). If you keep `~/.config` in a dotfiles repository, exclude `remctl/`.
 - The server checks the `Origin` and `Host` headers against loopback and your Tailscale identity, which blocks DNS-rebinding attacks from web pages.
 - The endpoint has the same power as the CLI, including deletes. Only devices you own should hold the token.
 - The endpoint is HTTP on loopback only. Tailscale provides HTTPS and the network boundary. Do not put the port on `0.0.0.0`.
@@ -235,4 +272,5 @@ Set `REMCTL_MCP_DEBUG=1` in the client's environment for a per-request trace on 
 - **`doctor` says a connection starts a missing or versioned Python.** The app was registered with a Python path that no longer exists, or with a versioned Homebrew path that `brew upgrade` will remove. Run `remctl mcp install` again. For the tailnet service, run `remctl mcp install --client tailscale`.
 - **A tool reports that the Capability Host is unavailable.** Call the `doctor` tool or run `remctl doctor` and follow its fix text. The MCP server never bypasses the host.
 - **The tailnet endpoint is configured but not serving.** `remctl mcp status` shows which part is down. `remctl mcp install --client tailscale` repairs the service and the serve mount. `tailscale serve status` lists the mounts.
-- **Another device gets 401.** The token differs. Run `remctl mcp config --format tailscale` on the Mac and reconnect the device.
+- **Another device gets 401.** Its saved token differs from the Mac's, usually after a rotation. Print the token with `remctl mcp token` and save it again on that device with `security add-generic-password -U -a remctl -s remctl-mcp-token -w`.
+- **An app says its header helper failed.** The Keychain item is missing on that device. `security find-generic-password -s remctl-mcp-token` checks for it; save the token as in step 1.

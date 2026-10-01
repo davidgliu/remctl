@@ -13481,7 +13481,7 @@ def cmd_onboard(a):
     if any(item.get("client") == "claude-code" and item.get("ok") for item in mcp_results):
         onboarding_line("info", "New Claude Code sessions see RemCTL; in an open session run /mcp.")
     if tailscale_result and tailscale_result.get("ok"):
-        onboarding_line("info", "On another device, paste the command above. Reprint it: remctl mcp config --format tailscale")
+        onboarding_line("info", "On another Mac, run the commands above. Reprint them: remctl mcp config --format tailscale")
     onboarding_line("info", "Check everything later with: remctl doctor")
     if result["failures"]:
         sys.exit(1)
@@ -13710,12 +13710,14 @@ def mcp_remove_client(client, *, scope="user"):
 
 
 def print_tailscale_snippets(snippets, *, indent="      "):
-    print(f"{indent}On another device with Claude Code:")
+    print(f"{indent}On the other Mac, save the token in the Keychain. Print it here with `remctl mcp token`.")
+    print(f"{indent}  {snippets['keychain']}")
+    print(f"{indent}Then connect Claude Code:")
     print(f"{indent}  {snippets['claude-code']}")
-    print(f"{indent}Codex on another device:")
+    print(f"{indent}Codex (add to ~/.codex/config.toml):")
     for line in snippets["codex"].splitlines():
         print(f"{indent}  {line}")
-    print(C.dim(f"{indent}Claude Desktop on another Mac and other clients: remctl mcp config --format tailscale"))
+    print(C.dim(f"{indent}Claude Desktop, Hermes, and other clients: remctl mcp config --format tailscale"))
 
 
 def print_mcp_result(result):
@@ -13992,7 +13994,8 @@ def cmd_mcp(a):
                 return
             print(C.bold("RemCTL MCP token rotated"))
             print(f"  {config['token']}")
-            print(C.dim("  Devices that used the old token must be reconnected: remctl mcp config --format tailscale"))
+            print(C.dim(f"  Sensitive. On each device, save the new token in the Keychain: {remctl_mcp.KEYCHAIN_SAVE_COMMAND}"))
+            print(C.dim("  Apps read it the next time they start or reconnect."))
             return
         config = remctl_mcp.load_http_config()
         if config is None:
@@ -14002,6 +14005,10 @@ def cmd_mcp(a):
                 print("No token yet. Run `remctl mcp install --client tailscale` first.", file=sys.stderr)
             sys.exit(1)
         print(json.dumps({"ok": True, "token": config["token"]}, indent=2) if json_mode else config["token"])
+        # The label goes to stderr so `remctl mcp token | pbcopy` still copies only the token.
+        if not json_mode and sys.stderr.isatty():
+            print(f"Sensitive: this token can read and change your reminders. Save it in the Keychain on the other device "
+                  f"({remctl_mcp.KEYCHAIN_SAVE_COMMAND}), not in a shell file, note, or chat.", file=sys.stderr)
         return
 
     if action == "config":
@@ -14022,17 +14029,26 @@ def cmd_mcp(a):
                 return
             print(C.bold("Connect a device on your tailnet"))
             print(f"  Endpoint: {remote['url']}")
-            print(f"  Token:    {remote['token']}")
+            print("  These commands don't contain the token. Print it on this Mac with `remctl mcp token`.")
+            print(C.bold("1. On the other Mac, save the token in the login Keychain"))
+            print("  It asks for the token, so the token stays out of your shell history.")
+            print(f"  {remote['keychain']}")
+            print(C.bold("2. Connect each app. It reads the token from the Keychain when it connects."))
             print(C.bold("Claude Code"))
             print(f"  {remote['claude-code']}")
-            print(C.bold("Codex"))
+            print(C.bold("Codex (add to ~/.codex/config.toml)"))
             for line in remote["codex"].splitlines():
                 print(f"  {line}")
-            print(C.bold("Claude Desktop on another Mac (needs Node; uses the mcp-remote bridge)"))
+            print(C.bold("Claude Desktop (merge into claude_desktop_config.json; needs Node for the mcp-remote bridge)"))
             print(remote["claude-desktop"])
+            print(C.bold("Hermes Agent (merge into ~/.hermes/config.yaml)"))
+            print(C.dim("  Hermes runs one secrets helper. If you already have secrets.command, add the REMCTL_MCP_TOKEN line to its output."))
+            print(remote["hermes"], end="")
             print(C.bold("Other clients (Streamable HTTP with a bearer header)"))
+            print(C.dim("  Give the client the token through its own secret store, not a file you sync or commit."))
             print(remote["json"])
-            print(C.dim("Rotate the token with `remctl mcp token --rotate` if it leaks."))
+            print(C.dim("The token can read and change your reminders. If it was ever committed, synced, or shared, "
+                        "run `remctl mcp token --rotate`, then repeat step 1 on each device."))
             return
         if fmt == "all":
             if json_mode:
