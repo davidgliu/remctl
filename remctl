@@ -13,6 +13,7 @@ import remctl_broker
 
 CLI_NAME = os.path.basename(sys.argv[0])
 from datetime import datetime, timedelta, timezone
+from functools import lru_cache
 from pathlib import Path
 from types import SimpleNamespace
 from urllib.parse import quote, urlparse
@@ -3679,8 +3680,34 @@ def bridge_error_payload(status, message, stderr=""):
     }
 
 
+@lru_cache(maxsize=1)
+def account_providers():
+    """Resolve account providers by stable ID inside the signed host, once per command."""
+    path = Path.home() / "Library/Accounts/Accounts4.sqlite"
+    try:
+        # Read the current WAL too: an immutable connection can miss account changes.
+        with contextlib.closing(sqlite3.connect(path.as_uri() + "?mode=ro", uri=True, timeout=1)) as db:
+            rows = db.execute(
+                "WITH RECURSIVE icloud_accounts(id) AS ("
+                "SELECT a.Z_PK FROM ZACCOUNT a JOIN ZACCOUNTTYPE t ON a.ZACCOUNTTYPE = t.Z_PK "
+                "WHERE t.ZIDENTIFIER = 'com.apple.account.AppleAccount' "
+                "UNION SELECT a.Z_PK FROM ZACCOUNT a JOIN icloud_accounts p ON a.ZPARENTACCOUNT = p.id) "
+                "SELECT a.ZIDENTIFIER, CASE WHEN i.id IS NOT NULL THEN 'com.apple.account.AppleAccount' "
+                "ELSE t.ZIDENTIFIER END FROM ZACCOUNT a "
+                "JOIN ZACCOUNTTYPE t ON a.ZACCOUNTTYPE = t.Z_PK "
+                "LEFT JOIN icloud_accounts i ON a.Z_PK = i.id"
+            ).fetchall()
+        return {identifier.lower(): provider for identifier, provider in rows
+                if isinstance(identifier, str) and identifier and isinstance(provider, str) and provider}
+    except (OSError, sqlite3.Error):
+        # Keep the existing EventKit fallback when account records are unavailable.
+        return {}
+
+
 def bridge_call_result(data, timeout=30):
     """Call remctl-bridge and return raw subprocess + parsed JSON details."""
+    if data.get("action") in {"create", "create_list", "rename_list", "delete_list", "read"} or data.get("list") or data.get("listId"):
+        data = {**data, "accountProviders": account_providers()}
     try:
         proc = subprocess.run(
             [str(BRIDGE_PATH)], input=json.dumps(data),
