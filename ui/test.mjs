@@ -1,5 +1,12 @@
 import {build} from 'esbuild';
 import assert from 'node:assert/strict';
+import {readFile} from 'node:fs/promises';
+const codexLauncher = JSON.parse(await readFile(new URL('../plugins/remctl/mcp.json',import.meta.url),'utf8')).mcpServers.remctl;
+const claudeLauncher = JSON.parse(await readFile(new URL('../plugins/claude-code/.mcp.json',import.meta.url),'utf8')).mcpServers.remctl;
+assert.match(codexLauncher.env.REMCTL_PLUGIN_BUILD,/^[a-f0-9]{16}$/);
+assert.equal(claudeLauncher.env.REMCTL_PLUGIN_BUILD,codexLauncher.env.REMCTL_PLUGIN_BUILD,'Both plugins must load the same build');
+assert.equal(codexLauncher.env.REMCTL_PLUGIN,'1');
+assert.equal(claudeLauncher.env.REMCTL_PLUGIN,undefined,'Claude Code uses shared tools without the Codex workspace metadata');
 const bundle=await build({entryPoints:[new URL('./src/reminder-helpers.ts',import.meta.url).pathname],bundle:true,write:false,format:'esm',platform:'node'});
 const {arrangeReminders,selectionRange,rescheduledDue,recurrenceText,isReminder,notePresentation,todaySection,systemListVisible,pinnedSidebarLists,sidebarLists,sidebarKey,sidebarScope,orderSidebarItems,moveSidebarItem}=await import('data:text/javascript;base64,'+Buffer.from(bundle.outputFiles[0].text).toString('base64'));
 assert.equal(isReminder({id:9,title:'Groceries',isGroceries:true}),false);

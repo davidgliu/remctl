@@ -2,7 +2,12 @@
   "mcpServers": {
     "remctl": {
       "command": "${HOME}/bin/remctl",
-      "args": ["mcp"]
+      "args": [
+        "mcp"
+      ],
+      "env": {
+        "REMCTL_PLUGIN_BUILD": "615ea411d244f3a6"
+      }
     }
   }
 }
