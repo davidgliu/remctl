@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.3.0 — 2026-10-03
+
+### New
+
+- Arrange lists, folders, custom Smart Lists, and pinned tiles in the Codex workspace with Move Up and Move Down. The order is saved on this Mac and survives refreshes and reopening the workspace. Reset Order restores the default order. This changes the RemCTL workspace order; it does not change Reminders.app. Thanks to @john-catalano ([#59](https://github.com/viticci/remctl/issues/59)).
+
+### Fixes
+
+- Custom Smart Lists appear inside their Reminders folders alongside ordinary lists. Collapsing a folder hides both kinds, and each Smart List keeps its navigation and pin controls. Thanks to @john-catalano ([#58](https://github.com/viticci/remctl/issues/58)).
+- Onboarding recognizes an active Codex plugin even when the Codex command is absent from PATH. A desktop-only Codex installation gets plugin setup guidance. Thanks to @john-catalano ([#57](https://github.com/viticci/remctl/issues/57)).
+- Codex and Claude Code plugin builds now track every shared Python module and both workspace assets. A new installed-surface check compares the CLI, sealed host code, workspace, packaged plugins, and installed plugin caches with the source build.
+
 ## 2.2.1 — 2026-10-02
 
 ### Fixes

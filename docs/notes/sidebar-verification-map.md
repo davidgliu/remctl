@@ -11,6 +11,6 @@ This map covers issues #57–#59. It complements the full CLI documentation.
 
 Build the UI with `npm run build` in `ui` after changing shared Python modules or either interface; this refreshes both plugin launchers' build fingerprint. Run the focused UI checks and the relevant Python tests. Install from the same checkout, refresh the affected plugin connection, then run the installed parity check and fresh MCP launchers.
 
-For actual Codex acceptance, use the Computer plugin to open Reminders and interact with visible list labels. The current account can verify ordinary and pinned ordering. Folder acceptance needs a named temporary test workflow with approval to create and clean up the exact live items. Fixture tests establish rendering behavior but do not prove that a live account has the required folder membership.
+For actual Codex acceptance, use the Computer plugin to open Reminders and interact with visible list labels. Ordinary and pinned ordering passed on the live account. Folder acceptance also passed with an approved temporary folder, one empty ordinary list, and two custom Smart Lists created for verification and removed afterward. Use a similarly bounded, approved workflow when the account lacks the needed objects. Fixture tests complement actual client acceptance.
 
 Full results and limitations are in [the validation record](issues-57-59-2026-10-03.md).
