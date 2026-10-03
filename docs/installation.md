@@ -74,7 +74,7 @@ Onboarding explains each step, asks before changing anything, and skips what's a
 
 1. **macOS permissions.** The host needs three: Reminders and Automation (both standard macOS prompts), and Full Disk Access, which has no prompt. If Full Disk Access is missing, RemCTL opens a helper that shows the exact app to add. See [Permissions](#permissions).
 2. **Health check.** RemCTL confirms the host is ready and reads today's reminders.
-3. **AI apps.** RemCTL looks for Claude Code, Codex, and Claude Desktop, and offers to connect each one it finds. See [the MCP guide](mcp.md). If you'll use the [Codex plugin](desktop-plugin.md), skip Codex here: the plugin brings its own connection.
+3. **AI apps.** RemCTL checks the Claude Code command, the Codex app or command, Claude Desktop, and existing MCP connections. An enabled [Codex plugin](desktop-plugin.md) is reported as connected even without the `codex` command. If only the Codex app is installed, onboarding directs you to its plugin settings. ChatGPT is outside this automatic setup step. See [the MCP guide](mcp.md) for the supported connection routes.
 4. **Other devices.** Only if Tailscale is installed: RemCTL offers to serve its tools to your other devices over your tailnet. The default answer is no.
 
 `--no-mcp` skips steps 3 and 4, and `--no-tailscale` skips step 4. `--json` runs the permission checks and reports everything without asking questions.

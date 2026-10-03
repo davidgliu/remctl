@@ -72,7 +72,9 @@ This removes the plugin only. RemCTL and your reminders stay. To remove RemCTL t
 
 The standard reminder tools used in conversation return data without opening a workspace. Open Reminders from the sidebar, or explicitly ask to open the workspace, when you want the interface. The standalone MCP server still offers its reminders widget to compatible clients.
 
-**Lists.** The sidebar works like Reminders'. Today, Scheduled, Flagged, All, Completed, Assigned to Me, and Recently Deleted sit alongside your lists, groups, and custom smart lists, each with its real color, emoji, or Reminders symbol. Groups fold with their arrow. Hover over a list to pin it. Pinned lists become tiles at the top, in the same order as Apple Reminders, and pins sync back to Reminders.
+**Lists.** The sidebar works like Reminders'. Today, Scheduled, Flagged, All, Completed, Assigned to Me, and Recently Deleted sit alongside your lists, groups, and custom smart lists, each with its real color, emoji, or Reminders symbol. Custom smart lists stay inside their Reminders folders, alongside ordinary lists. Groups fold with their arrow. Hover over a list to pin it. Pinned lists become tiles at the top, in the same order as Apple Reminders, and pins sync back to Reminders.
+
+Right-click a list, folder, or custom smart list and choose **Move Up** or **Move Down** to arrange the sidebar. Items move within their folder, the top level, or the pinned tiles. **Reset Order** restores the default order for that set of items. Your chosen order is saved on this Mac and survives refreshes, reopening the workspace, and plugin updates. Sidebar ordering is a RemCTL display preference; it does not change the order in Apple Reminders and does not require advanced features.
 
 **Layouts.** Switch between list, columns, and calendar from the toolbar. Each list, smart list, and view remembers its own layout; the 'Default layout' setting covers the rest. Lists show sections and nested subtasks. In columns, drop reminders into sections. In the calendar, drag a reminder to another day (it keeps its time), or double-click a day to create one. A 'No date' strip keeps unscheduled reminders in view.
 

@@ -3243,6 +3243,19 @@ class CliTests(unittest.TestCase):
         self.assertEqual(payload[1]["color"], {"name": "blue", "hex": "#007AFF"})
         self.assertNotIn("color", payload[0])
 
+    def test_smart_lists_preserve_folder_membership_in_either_parent_column(self):
+        for column in ("ZPARENTLIST", "ZPARENTLIST1"):
+            with self.subTest(column=column):
+                db = self._smart_list_db()
+                try:
+                    db.execute(f"ALTER TABLE ZREMCDBASELIST ADD COLUMN {column} INTEGER")
+                    db.execute(f"UPDATE ZREMCDBASELIST SET {column} = 20 WHERE Z_PK = 2")
+                    rows = self.remctl.q_smart_lists(db)
+                    custom = next(self.remctl.smart_list_to_dict(row) for row in rows if row["Z_PK"] == 2)
+                    self.assertEqual(custom["parentListId"], 20)
+                finally:
+                    db.close()
+
     def test_list_pin_supports_smart_list_by_name_and_id(self):
         db = self._smart_list_db()
         pin_args = SimpleNamespace(name="Flagged", list_id=None, smart_list_id=None, private=True, json=True)

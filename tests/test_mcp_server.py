@@ -1147,6 +1147,35 @@ class CliIntegrationTests(unittest.TestCase):
         self.assertEqual(self.remctl.mcp_stale_clients_text(overview["clients"][1:]),
                          "MCP connection duplicates the connection the RemCTL plugin already provides: Codex")
 
+    def test_onboarding_recognizes_plugin_without_codex_on_path(self):
+        overview = {"clients": [{"id": "codex", "name": "Codex", "installed": False,
+                                  "configured": True, "plugin": "remctl@remctl-local", "current": None}]}
+        out = io.StringIO()
+        with mock.patch.object(self.remctl, "mcp_overview", return_value=overview), \
+             mock.patch.object(self.remctl, "mcp_install_client") as install, \
+             mock.patch.object(sys, "stdout", out), mock.patch.object(self.remctl.C, "enabled", False):
+            self.assertEqual(self.remctl.offer_mcp_connections(Path("/x/remctl")), [])
+        self.assertIn("Codex: connected through the RemCTL plugin", out.getvalue())
+        self.assertNotIn("No Claude Code", out.getvalue())
+        install.assert_not_called()
+
+    def test_detect_codex_desktop_without_command_and_offer_plugin_setup(self):
+        with mock.patch.object(remctl_mcp.shutil, "which", return_value=None), \
+             mock.patch.object(Path, "is_dir", side_effect=lambda: True):
+            client = next(c for c in remctl_mcp.detect_clients() if c["id"] == "codex")
+        self.assertTrue(client["installed"])
+        self.assertFalse(client["cliInstalled"])
+        self.assertEqual(client["detail"], "/Applications/Codex.app")
+        out = io.StringIO()
+        with mock.patch.object(self.remctl, "mcp_overview", return_value={"clients": [{**client, "configured": False}]}), \
+             mock.patch.object(self.remctl, "mcp_install_client") as install, \
+             mock.patch.object(self.remctl, "onboarding_ask") as ask, \
+             mock.patch.object(sys, "stdout", out):
+            self.remctl.offer_mcp_connections(Path("/x/remctl"))
+        self.assertIn("Manage the RemCTL plugin in Codex Settings", out.getvalue())
+        ask.assert_not_called()
+        install.assert_not_called()
+
     def test_completion_scripts_mention_mcp(self):
         for shell in ("zsh", "bash", "fish"):
             with self.subTest(shell=shell):
@@ -1701,7 +1730,7 @@ class OnboardingFlowTests(unittest.TestCase):
         output, _ = self._run(answers=[], tailscale={"installed": False}, clients=clients)
         self.assertIn("Step 3 of 3", output)
         self.assertNotIn("other devices", output)
-        self.assertIn("No supported AI app found", output)
+        self.assertIn("No Claude Code command, Codex app or command", output)
         output, _ = self._run(answers=[], tailscale={"installed": True, "running": True, "hostname": "m.ts.net", "https": False, "configured": False}, clients=clients)
         self.assertIn("no HTTPS certificate", output)
         output, _ = self._run(answers=[], tailscale={"installed": True, "running": True, "hostname": "m.ts.net", "https": True, "configured": True, "active": True, "url": "https://m.ts.net/remctl"}, clients=clients)

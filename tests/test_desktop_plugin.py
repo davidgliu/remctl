@@ -81,6 +81,25 @@ class DesktopPluginTests(unittest.TestCase):
         self.assertTrue(self.call("workspace_mutate",args)["isError"])
         self.assertEqual(len(self.executor.calls),1)
 
+    def test_sidebar_order_persists_across_server_restarts_and_keeps_scopes_separate(self):
+        top = ["list:HOME", "list:WORK", "list:PRIORITIES", "list:MISC"]
+        self.call("update_sidebar_order", {"scope":"top", "order":top})
+        group = ["smart:THIS-WEEK", "smart:NEXT-WEEK", "list:ERRANDS"]
+        self.call("update_sidebar_order", {"scope":"group:PRIORITIES", "order":group})
+        self.server = m.MCPServer(m.ServerConfig(version="next-build", executor=self.executor))
+        value = self.call("read_sidebar_order")["structuredContent"]["orders"]
+        self.assertEqual(value, {"top":top, "group:PRIORITIES":group})
+        value = self.call("update_sidebar_order", {"scope":"group:PRIORITIES", "order":[]})
+        self.assertEqual(value["structuredContent"]["orders"], {"top":top})
+        self.assertEqual(self.executor.calls, [], "Display preferences must never write to Reminders")
+
+    def test_sidebar_order_rejects_invalid_keys_and_duplicate_items(self):
+        for args in ({"scope":"../file", "order":[]}, {"scope":"top", "order":["list:HOME", "list:HOME"]},
+                     {"scope":"top", "order":["invalid"]}, {"scope":"top", "order":[1]}):
+            with self.subTest(args=args):
+                self.assertTrue(self.call("update_sidebar_order", args)["isError"])
+        self.assertEqual(self.call("read_sidebar_order")["structuredContent"], {"orders":{}})
+
     def test_stale_edit_never_runs_write(self):
         self.executor.stdout='{"id":42,"revision":"new"}'
         value=self.call("workspace_mutate",{"operationId":"stale-operation-001","tool":"update_reminder","arguments":{"reminder_id":42,"title":"Edit"},"expectedRevision":"old"})

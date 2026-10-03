@@ -134,6 +134,41 @@ export function pinnedSidebarLists(lists: D[], smartLists: D[]): D[] {
     .sort((a: D, b: D) => (a.pinnedDate ?? Number.MAX_SAFE_INTEGER) - (b.pinnedDate ?? Number.MAX_SAFE_INTEGER));
 }
 
+// A Smart List belongs to the same folder as an ordinary list. Missing folders
+// fall back to the top level so a stale parent reference cannot hide a list.
+export function sidebarLists(lists: D[], smartLists: D[]): D[] {
+  const groups = new Set(lists.filter(list => list.isGroup).map(list => list.id));
+  return [...lists.map(list => ({...list, sidebarKind: "list"})),
+    ...smartLists.filter(list => list.kind === "custom").map(list => ({...list, title: list.name, sidebarKind: "smart"}))]
+    .filter((list: D) => list.isGroup || !list.pinned)
+    .map((list: D) => ({...list, parentListId: groups.has(list.parentListId) ? list.parentListId : undefined}));
+}
+
+export function sidebarKey(list: D): string {
+  const kind = list.sidebarKind === "smart" || list.kind === "custom" ? "smart" : "list";
+  return `${kind}:${list.objectUUID || list.id}`;
+}
+
+export function sidebarScope(list: D, lists: D[]): string {
+  if (list.pinned && !list.isGroup) return "pinned";
+  const parent = lists.find(group => group.isGroup && group.id === list.parentListId);
+  return parent ? `group:${parent.objectUUID || parent.id}` : "top";
+}
+
+// Saved IDs stay ahead of new items. Removed IDs are ignored, and the default
+// order remains stable until the user changes that particular sibling set.
+export function orderSidebarItems(items: D[], order: string[] = []): D[] {
+  const positions = new Map(order.map((key, index) => [key, index]));
+  return [...items].sort((a, b) => (positions.get(sidebarKey(a)) ?? order.length) - (positions.get(sidebarKey(b)) ?? order.length));
+}
+
+export function moveSidebarItem(items: D[], key: string, direction: number): string[] {
+  const keys = items.map(sidebarKey), index = keys.indexOf(key), target = index + direction;
+  if (index >= 0 && target >= 0 && target < keys.length)
+    [keys[index], keys[target]] = [keys[target], keys[index]];
+  return keys;
+}
+
 // Fallback list colors, in Reminders' order, for lists that report none.
 export const COLORS = ["#54b652", "#e9b92e", "#ef8d32", "#ed5e5e", "#ad72d8", "#5394ed"];
 export function colorFor(list: D, index = 0): string {

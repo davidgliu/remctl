@@ -79,6 +79,11 @@ import {
   todaySection,
   systemListVisible,
   pinnedSidebarLists,
+  sidebarLists,
+  sidebarKey,
+  sidebarScope,
+  orderSidebarItems,
+  moveSidebarItem,
   colorFor,
   COLORS,
 } from "./reminder-helpers";
@@ -203,7 +208,8 @@ function Workspace() {
     [menu, setMenu] = useState(false),
     [collapsed, setCollapsed] = useState<number[]>([]),
     [collapsedSections, setCollapsedSections] = useState<string[]>([]),
-    [collapsedGroups, setCollapsedGroups] = useState<number[]>([]);
+    [collapsedGroups, setCollapsedGroups] = useState<number[]>([]),
+    [sidebarOrder, setSidebarOrder] = useState<Record<string, string[]> | null>(null);
   useEffect(() => {
     const wide = window.matchMedia("(min-width: 1101px)");
     const resize = () => setSidebar(wide.matches);
@@ -396,6 +402,7 @@ function Workspace() {
                 setSymbols(s.symbols || {});
               })
               .catch(report);
+            call("read_sidebar_order").then(s => setSidebarOrder(s.orders)).catch(report);
           }
         }
         if (event.type === "context") {
@@ -728,6 +735,28 @@ function Workspace() {
           ({ assigned: "Assigned to Me", deleted: "Recently Deleted" } as Record<string, string>)[query.view] ||
           titleCase(query.view || "Reminders");
   const smartList = data.smartLists?.find((l: D) => l.id === query.smartId);
+  const sidebarEntries = sidebarLists(lists, data.smartLists || []).map((list: D) => ({
+    ...list, badge: {...list.badge, image: symbols[list.badge?.symbol || "default"] || list.badge?.image},
+  }));
+  const sidebarSiblings = (scope: string) => orderSidebarItems(
+    scope === "pinned" ? pinnedSidebarLists(lists, data.smartLists || []) : sidebarEntries.filter(list => sidebarScope(list, lists) === scope),
+    sidebarOrder?.[scope],
+  );
+  const saveSidebarOrder = (scope: string, order: string[]) => run(async () => {
+    const value = await call("update_sidebar_order", {scope, order});
+    setSidebarOrder(value.orders);
+  });
+  const sidebarActions = (list: D): Action[] => {
+    const scope = sidebarScope(list, lists), siblings = sidebarSiblings(scope), key = sidebarKey(list), index = siblings.findIndex(item => sidebarKey(item) === key);
+    return [
+      {label: "Move Up", disabled: busy || sidebarOrder === null || index <= 0, run: () => saveSidebarOrder(scope, moveSidebarItem(siblings, key, -1))},
+      {label: "Move Down", disabled: busy || sidebarOrder === null || index < 0 || index === siblings.length - 1, run: () => saveSidebarOrder(scope, moveSidebarItem(siblings, key, 1))},
+      {label: "Reset Order", disabled: busy || !sidebarOrder?.[scope]?.length, run: () => saveSidebarOrder(scope, [])},
+      ...(list.sidebarKind === "smart" ? smartListActions(list) : listActions(list)),
+    ];
+  };
+  const openSidebarList = (list: D) => navigate(list.sidebarKind === "smart" ? {view: "smart", smartId: list.id} : {view: "list", listId: list.id});
+  const sidebarChosen = (list: D) => list.sidebarKind === "smart" ? query.smartId === list.id : query.listId === list.id;
   const activeColor = currentList
     ? colorFor(currentList, lists.indexOf(currentList))
     : smartList
@@ -1440,13 +1469,13 @@ function Workspace() {
                 <span className="smart-title">{label}</span>
               </button>
             ))}
-            {pinnedSidebarLists(lists, data.smartLists || []).map((list: D) => {
+            {sidebarSiblings("pinned").map((list: D) => {
               const smart = list.sidebarKind === "smart", title = list.title || list.name;
               const selected = smart ? query.smartId === list.id : query.listId === list.id;
               return <div className="pinned-tile" key={`${list.sidebarKind}-${list.id}`} style={{"--card": colorFor(list)} as React.CSSProperties}>
                 <button className={"smart-card " + (selected ? "chosen" : "")} aria-label={`${title}, pinned${smart ? " smart" : ""} list`} title={title}
                   onClick={() => navigate(smart ? {view: "smart", smartId: list.id} : {view: "list", listId: list.id})}
-                  onContextMenu={(e) => showContext(e, smart ? smartListActions(list) : listActions(list))}
+                  onContextMenu={(e) => showContext(e, sidebarActions(list))}
                   onDragOver={smart ? undefined : (e) => e.preventDefault()}
                   onDrop={smart ? undefined : (e) => dropIntoList(e, list)}
                   data-drop-kind={smart ? undefined : "list"} data-drop-id={smart ? undefined : list.id}
@@ -1478,6 +1507,7 @@ function Workspace() {
             {VIEWS.filter(([id]) => !systemListVisible(data.smartLists || [], id)).map(([id, label, Icon]) => <button key={id} className={"nav-row " + (query.view === id ? "chosen" : "")} onClick={() => navigate({view: id})}><span className="nav-icon"><Icon size={15}/></span><span>{label}</span></button>)}
             <div className="nav-label">
               <span>My Lists</span>
+              {settings.advancedFeatures && <IconButton label="New smart list" onClick={() => openAction("manage_smart_list_create")}><Sparkles size={13}/></IconButton>}
               <IconButton
                 label="New list"
                 onClick={() => openAction("create_list")}
@@ -1485,12 +1515,11 @@ function Workspace() {
                 <Plus size={13} />
               </IconButton>
             </div>
-            {lists
-              .filter((l: D) => !l.parentListId && (l.isGroup || !l.pinned))
+            {sidebarSiblings("top")
               .map((list: D, index: number) => {
                 const folded = collapsedGroups.includes(list.id);
                 return (
-                <React.Fragment key={list.id}>
+                <React.Fragment key={`${list.sidebarKind}-${list.id}`}>
                   <div className={"sidebar-list-row " + (list.isGroup ? "group-row" : "")}>
                   {list.isGroup && (
                     <button
@@ -1504,16 +1533,16 @@ function Workspace() {
                   )}
                   <button
                     className={
-                      "nav-row " + (list.isGroup ? "group " : "") + (query.listId === list.id ? "chosen" : "")
+                      "nav-row " + (list.isGroup ? "group " : "") + (sidebarChosen(list) ? "chosen" : "")
                     }
-                    onClick={() => navigate({ view: "list", listId: list.id })}
-                    onContextMenu={(e) => showContext(e, listActions(list))}
-                    onDragOver={(e) => e.preventDefault()}
-                    onDrop={(e) => dropIntoList(e, list)}
+                    onClick={() => openSidebarList(list)}
+                    onContextMenu={(e) => showContext(e, sidebarActions(list))}
+                    onDragOver={(e) => {if (list.sidebarKind !== "smart") e.preventDefault();}}
+                    onDrop={(e) => {if (list.sidebarKind !== "smart") dropIntoList(e, list);}}
                     draggable={false}
-                    data-drop-kind={list.isGroup ? "group" : "list"}
+                    data-drop-kind={list.sidebarKind === "smart" ? undefined : list.isGroup ? "group" : "list"}
                     data-drop-id={list.id}
-                    onPointerDown={(e) => {if (settings.advancedFeatures && !list.isGroup) internalDrag.begin(e, {kind: "list", id: list.id, label: list.title});}}
+                    onPointerDown={(e) => {if (settings.advancedFeatures && !list.isGroup && list.sidebarKind !== "smart") internalDrag.begin(e, {kind: "list", id: list.id, label: list.title});}}
                     onDragStart={(e) =>
                       e.dataTransfer.setData(
                         "text/remctl-list",
@@ -1525,23 +1554,22 @@ function Workspace() {
                     <span>{list.title}</span>
                     <small>{list.isGroup ? "" : list.count || ""}</small>
                   </button>
-                  {pinButton(list)}
+                  {pinButton(list, list.sidebarKind === "smart")}
                   </div>
                   {list.isGroup && !folded &&
-                    lists
-                      .filter((l: D) => l.parentListId === list.id && !l.pinned)
+                    sidebarSiblings(`group:${list.objectUUID || list.id}`)
                       .map((child: D, j: number) => (
-                        <div className="sidebar-list-row" key={child.id}>
+                        <div className="sidebar-list-row" key={`${child.sidebarKind}-${child.id}`}>
                         <button
                           onContextMenu={(e) =>
-                            showContext(e, listActions(child))
+                            showContext(e, sidebarActions(child))
                           }
-                          onDragOver={(e) => e.preventDefault()}
-                          onDrop={(e) => dropIntoList(e, child)}
+                          onDragOver={(e) => {if (child.sidebarKind !== "smart") e.preventDefault();}}
+                          onDrop={(e) => {if (child.sidebarKind !== "smart") dropIntoList(e, child);}}
                           draggable={false}
-                          data-drop-kind="list"
+                          data-drop-kind={child.sidebarKind === "smart" ? undefined : "list"}
                           data-drop-id={child.id}
-                          onPointerDown={(e) => {if (settings.advancedFeatures) internalDrag.begin(e, {kind: "list", id: child.id, label: child.title});}}
+                          onPointerDown={(e) => {if (settings.advancedFeatures && child.sidebarKind !== "smart") internalDrag.begin(e, {kind: "list", id: child.id, label: child.title});}}
                           onDragStart={(e) =>
                             e.dataTransfer.setData(
                               "text/remctl-list",
@@ -1550,41 +1578,21 @@ function Workspace() {
                           }
                           className={
                             "nav-row child " +
-                            (query.listId === child.id ? "chosen" : "")
+                            (sidebarChosen(child) ? "chosen" : "")
                           }
                           onClick={() =>
-                            navigate({ view: "list", listId: child.id })
+                            openSidebarList(child)
                           }
                         >
                           <ListBadge list={child} color={colorFor(child, j)} />
                           <span>{child.title}</span>
                           <small>{child.count || ""}</small>
                         </button>
-                        {pinButton(child)}
+                        {pinButton(child, child.sidebarKind === "smart")}
                         </div>
                       ))}
                 </React.Fragment>
               );})}
-            {data.smartLists?.some((l: D) => l.kind === "custom" && !l.pinned) || settings.advancedFeatures ? (
-              <div className="nav-label"><span>Smart Lists</span><IconButton label="New smart list" disabled={!settings.advancedFeatures} onClick={()=>openAction("manage_smart_list_create")}><Plus size={13}/></IconButton></div>
-            ) : null}
-            {data.smartLists
-              ?.filter((l: D) => l.kind === "custom" && !l.pinned)
-              .map((l: D) => (
-                <div className="sidebar-list-row" key={l.id}>
-                <button
-                  className={
-                    "nav-row " + (query.smartId === l.id ? "chosen" : "")
-                  }
-                  onClick={() => navigate({ view: "smart", smartId: l.id })}
-                  onContextMenu={(e) => showContext(e, smartListActions(l))}
-                >
-                  <ListBadge list={{...l, badge: {...l.badge, image: symbols[l.badge?.symbol || "default"]}}} color={colorFor(l)} />
-                  <span>{l.name}</span>
-                </button>
-                {pinButton(l, true)}
-                </div>
-              ))}
             <button
               className={"nav-row trash-row " + (query.view === "deleted" ? "chosen" : "")}
               onClick={() => navigate({ view: "deleted" })}

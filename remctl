@@ -761,6 +761,7 @@ def q_smart_lists(db):
     ]
     columns.extend(column for column in ("ZBADGEEMBLEM", "ZCOLOR") if column in table_columns)
     columns.extend(column for column in ("ZISPINNEDBYCURRENTUSER", "ZPINNEDDATE") if column in table_columns)
+    columns.extend(column for column in ("ZPARENTLIST", "ZPARENTLIST1") if column in table_columns)
     return db.execute(
         f"SELECT {', '.join(columns)} FROM ZREMCDBASELIST "
         "WHERE ZMARKEDFORDELETION = 0 AND (Z_ENT = 4 OR ZSMARTLISTTYPE IS NOT NULL) "
@@ -7616,6 +7617,9 @@ def smart_list_to_dict(row):
         "smartListType": row["ZSMARTLISTTYPE"],
         "filterLength": len(filter_data) if filter_data else 0,
     }
+    parent_id = list_parent_pk(row)
+    if parent_id:
+        payload["parentListId"] = parent_id
     if _row_has_key(row, "ZCOLOR") and row["ZCOLOR"]:
         payload["color"] = parse_list_color(row["ZCOLOR"])
     elif payload["kind"] == "custom":
@@ -13898,16 +13902,20 @@ def onboarding_today_count(cli_path):
 def offer_mcp_connections(cli_path, *, interactive=True):
     """Onboarding step: connect the AI apps found on this Mac, one question each."""
     overview = mcp_overview(cli_path)
-    detected = [client for client in overview["clients"] if client["installed"]]
+    detected = [client for client in overview["clients"] if client["installed"] or client["configured"]]
     results = []
     if not detected:
-        onboarding_line("info", "No supported AI app found on this Mac (Claude Code, Codex, Claude Desktop).")
+        onboarding_line("info", "No Claude Code command, Codex app or command, Claude Desktop app, or existing MCP connection found.")
         onboarding_line("info", "Any other MCP client can connect with the snippet from `remctl mcp config`.")
         return results
     for client in detected:
         label = client["name"]
         if client["configured"] and client.get("current") is not False:
             onboarding_line("ok", f"{label}: {mcp_connected_text(client)}")
+            continue
+        if client["id"] == "codex" and client.get("cliInstalled") is False:
+            onboarding_line("pending", f"{label}: {'connected twice' if client.get('staleReason') == 'duplicate' else 'not connected'}",
+                            fix="Manage the RemCTL plugin in Codex Settings → Plugins. For command-line setup, install the codex command, then run `remctl mcp install --client codex`.")
             continue
         duplicate = client.get("staleReason") == "duplicate"
         if not interactive:

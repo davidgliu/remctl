@@ -136,6 +136,11 @@ class Plugin:
             descriptor("workspace_detail", "Reminder Details", {"type": "object", "properties": {"identifier": {}}, "required": ["identifier"], "additionalProperties": False}),
             descriptor("search_mentions", "Find a reminder or list", {"type": "object", "properties": {"query": {"type": "string", "maxLength": 512}}, "required": ["query"], "additionalProperties": False}, extra={"openai/extensions": {"mentions/search": {}}}),
             descriptor("read_settings", "RemCTL Settings"),
+            descriptor("read_sidebar_order", "Sidebar Order"),
+            descriptor("update_sidebar_order", "Save Sidebar Order", {"type": "object", "properties": {
+                "scope": {"type": "string", "maxLength": 134},
+                "order": {"type": "array", "maxItems": 500, "items": {"type": "string", "maxLength": 134}},
+            }, "required": ["scope", "order"], "additionalProperties": False}, read=False),
             descriptor("update_settings", "Update RemCTL Settings", {"type": "object", "properties": {"set": SETTINGS_SCHEMA}, "required": ["set"], "additionalProperties": False}, read=False),
             descriptor("workspace_mutate", "Apply a Reminders change", {"type": "object", "properties": {
                 "operationId": {"type": "string", "maxLength": 128}, "tool": {"type": "string"},
@@ -199,6 +204,23 @@ class Plugin:
             return result({"path":str(path),"filename":name})
         if name == "read_settings":
             return result(self.settings())
+        if name == "read_sidebar_order":
+            with self.state_lock():
+                return result({"orders": self.read_state("sidebar-order.json", {})})
+        if name == "update_sidebar_order":
+            scope, order = args["scope"], args["order"]
+            if not re.fullmatch(r"top|pinned|group:[A-Za-z0-9-]{1,128}", scope):
+                raise ValueError("Invalid sidebar scope")
+            if len(set(order)) != len(order) or any(not re.fullmatch(r"(?:list|smart):[A-Za-z0-9-]{1,128}", item) for item in order):
+                raise ValueError("Invalid sidebar order")
+            with self.state_lock():
+                orders = self.read_state("sidebar-order.json", {})
+                if order:
+                    orders[scope] = order
+                else:
+                    orders.pop(scope, None)
+                write_private_text_file(self.directory / "sidebar-order.json", json.dumps(orders))
+            return result({"orders": orders})
         if name == "update_settings":
             with self.state_lock():
                 values = {**DEFAULTS, **self.read_state("settings.json", {}), **args["set"]}

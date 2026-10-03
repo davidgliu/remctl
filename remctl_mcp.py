@@ -2039,13 +2039,18 @@ def _run(argv: list[str], *, timeout: float = 60.0, runner: Callable[..., Any] |
 def detect_clients() -> list[dict[str, Any]]:
     claude = shutil.which("claude")
     codex = shutil.which("codex")
+    codex_app = next(
+        (path for path in (Path("/Applications/Codex.app"), Path.home() / "Applications" / "Codex.app") if path.is_dir()),
+        None,
+    )
     desktop_app = next(
         (path for path in (Path("/Applications/Claude.app"), Path.home() / "Applications" / "Claude.app") if path.is_dir()),
         None,
     )
     return [
         {"id": "claude-code", "name": "Claude Code", "installed": bool(claude), "detail": claude or "claude CLI not on PATH"},
-        {"id": "codex", "name": "Codex", "installed": bool(codex), "detail": codex or "codex CLI not on PATH"},
+        {"id": "codex", "name": "Codex", "installed": bool(codex or codex_app), "cliInstalled": bool(codex),
+         "detail": codex or (str(codex_app) if codex_app else "Codex.app not found; codex CLI not on PATH")},
         {
             "id": "claude-desktop",
             "name": "Claude Desktop and Cowork",
