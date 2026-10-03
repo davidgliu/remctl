@@ -1,6 +1,6 @@
-# RemCTL 2.3.0 release candidate
+# RemCTL 2.3.0 release validation
 
-Prepared and installed on October 3, 2026, on the local `fix/issues-57-59` branch. Publication, tags, a remote push, and issue closure await Federico's approval. The candidate includes fixes for [#57](https://github.com/viticci/remctl/issues/57), [#58](https://github.com/viticci/remctl/issues/58), and [#59](https://github.com/viticci/remctl/issues/59); [their validation record](issues-57-59-2026-10-03.md) explains the implementation and actual Codex acceptance.
+Published on October 3, 2026 from commit `9680e4681adefd0077b40f04df6dbbd434319b5c`, tagged `v2.3.0`. The [public release](https://github.com/viticci/remctl/releases/tag/v2.3.0) is the latest release, not a draft or prerelease. It includes fixes for [#57](https://github.com/viticci/remctl/issues/57), [#58](https://github.com/viticci/remctl/issues/58), and [#59](https://github.com/viticci/remctl/issues/59); [their validation record](issues-57-59-2026-10-03.md) explains the implementation and actual Codex acceptance.
 
 ## Source and package checks
 
@@ -19,7 +19,7 @@ Prepared and installed on October 3, 2026, on the local `fix/issues-57-59` branc
 | Bundled Python version | `3.13.15` |
 | Bundled protected runtime ID | `141548bd912c49dac5be745a791fdc92d907d3ae869eff7ae159affe54b629c4` |
 
-The release build and notarization receipts are under `.build/release-2.3.0`. Upload-ready copies of the disk image, checksum, and release notes are under `dist/2.3.0`.
+The release build and notarization receipts are under `.build/release-2.3.0`. Published copies of the disk image, checksum, and release notes are under `dist/2.3.0`. Both public assets were downloaded without authentication; sizes, GitHub asset digests, and local SHA-256 hashes match. The downloaded disk image's stapled ticket and Gatekeeper assessment also pass. The installed-surface audit still passes all 41 comparisons after publication.
 
 ## Installed acceptance
 
@@ -39,3 +39,9 @@ This Mac was reinstalled through the official source installer using its existin
 Testing ran on Apple silicon with macOS 27. Intel, older macOS releases, the reporter's account, and physical iPhone/iPad clients were not tested.
 
 A fresh Claude Code agent conversation was attempted but could not execute its MCP call because the account had reached its weekly usage limit. This is unavailable acceptance, not a passing agent conversation. The real cached plugin launcher, configured MCP transport, strict manifest validation, and all five native Today-panel tests passed. Existing Claude Code conversations need a restart to apply the plugin update.
+
+## Issue follow-up
+
+Federico authorized publication and closure. Issues [#57](https://github.com/viticci/remctl/issues/57#issuecomment-5969132605), [#58](https://github.com/viticci/remctl/issues/58#issuecomment-5969132879), and [#59](https://github.com/viticci/remctl/issues/59#issuecomment-5969133169) were closed as completed by `viticci`. Each comment explains the released behavior and links to 2.3.0. The ordering comment states that the preference is local to RemCTL and automatic mirroring of Apple's order is not included.
+
+`main` was advanced to the exact release commit before publication. The pre-existing untracked `.playwright-mcp/` directory was preserved.
