@@ -206,7 +206,7 @@ remctl delete 23880 23881 --force --json
 
 Without `--private`, `edit ID --url URL` appends the URL to existing notes. If `--notes` is also supplied, it replaces the notes before the URL is appended. `--notes ""` clears the notes.
 
-Rescheduling: when every alarm is an absolute alarm at the old due time, `edit -d` moves all copies, so the time shown in Reminders follows the due date. `edit -d clear` removes those alarms. Other alarms are left alone.
+Rescheduling: when every alarm is an absolute alarm at the old due time, `edit -d` moves all copies to the new time, so the time shown in Reminders follows the due date. A date-only target removes those alarms instead of moving them to midnight. An explicit `--alarm` takes precedence. `edit -d clear` removes matching alarms. Other alarm configurations are left alone.
 
 Moving between lists: `edit -l` and `edit --list-id` use EventKit. Some moves are rejected by EventKit, for example a parent reminder with subtasks or a move across a shared-list boundary. For a pure move, RemCTL then clones the reminder into the destination through ReminderKit, verifies the clone and its subtask count, and deletes the original. The JSON then has `"method": "clone-delete"`, `oldId`, the new `id`, and `subtasksMoved`. Continue with the new `id`. Move first; apply other edits afterwards.
 

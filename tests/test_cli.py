@@ -7201,7 +7201,7 @@ class CliTests(unittest.TestCase):
             }),
         }
 
-    def _bridge_payloads_for_due_edit(self, reminder, alarm_rows, due):
+    def _bridge_payloads_for_due_edit(self, reminder, alarm_rows, due, alarm=None):
         with (
             mock.patch.object(self.remctl, "open_db", return_value=object()),
             mock.patch.object(self.remctl, "q_reminder", return_value=reminder),
@@ -7223,9 +7223,72 @@ class CliTests(unittest.TestCase):
                 due=due,
                 url=None,
                 recurrence=None,
-                alarm=None,
+                alarm=alarm,
             ))
         return [call.args[0] for call in bridge_call_result.call_args_list]
+
+    def test_cmd_edit_date_only_due_clears_only_copies_of_the_due_alarm(self):
+        from datetime import datetime
+
+        old_due = datetime(2026, 10, 3, 16)
+        reminder = dict(self._FAKE_REMINDER)
+        reminder.update({
+            "Z_PK": 1,
+            "ZDUEDATE": self.remctl.to_ts(old_due),
+            "ZDISPLAYDATEDATE": self.remctl.to_ts(old_due),
+        })
+        for copies in (1, 2):
+            with self.subTest(copies=copies):
+                alarms = [self._absolute_alarm_row(7640 + i, old_due) for i in range(copies)]
+                payload = self._bridge_payloads_for_due_edit(reminder, alarms, "2026-10-04")[-1]
+
+                self.assertEqual(payload["due"], "2026-10-04T00:00:00")
+                self.assertIs(payload.get("allDay"), True)
+                self.assertIs(payload.get("clearAlarms"), True)
+                self.assertNotIn("alarm", payload)
+
+    def test_cmd_edit_date_only_due_preserves_custom_alarm_configurations(self):
+        from datetime import datetime
+
+        old_due = datetime(2026, 10, 3, 16)
+        custom_time = datetime(2026, 10, 3, 15)
+        reminder = dict(self._FAKE_REMINDER)
+        reminder.update({
+            "Z_PK": 1,
+            "ZDUEDATE": self.remctl.to_ts(old_due),
+            "ZDISPLAYDATEDATE": self.remctl.to_ts(custom_time),
+        })
+        due_alarm = self._absolute_alarm_row(7640, old_due)
+        custom_alarm = self._absolute_alarm_row(7641, custom_time)
+        for name, alarms in (
+            ("display date", [custom_alarm]),
+            ("mixed absolute", [due_alarm, custom_alarm]),
+            ("relative", [due_alarm, {"alarm_id": 7641, "time_interval": -900}]),
+            ("location", [due_alarm, {"alarm_id": 7641, "latitude": 41.9, "longitude": 12.5}]),
+        ):
+            with self.subTest(alarms=name):
+                payload = self._bridge_payloads_for_due_edit(reminder, alarms, "2026-10-04")[-1]
+                self.assertIs(payload.get("allDay"), True)
+                self.assertNotIn("alarm", payload)
+                self.assertNotIn("clearAlarms", payload)
+
+    def test_cmd_edit_date_only_due_honors_explicit_alarm(self):
+        from datetime import datetime
+
+        old_due = datetime(2026, 10, 3, 16)
+        reminder = dict(self._FAKE_REMINDER)
+        reminder.update({
+            "Z_PK": 1,
+            "ZDUEDATE": self.remctl.to_ts(old_due),
+            "ZDISPLAYDATEDATE": self.remctl.to_ts(old_due),
+        })
+        alarms = [self._absolute_alarm_row(7640, old_due)]
+        for alarm, expected in (("2026-10-04 18:00", "2026-10-04T18:00:00"), ("15m", "-15m")):
+            with self.subTest(alarm=alarm):
+                payload = self._bridge_payloads_for_due_edit(reminder, alarms, "2026-10-04", alarm=alarm)[-1]
+                self.assertIs(payload.get("allDay"), True)
+                self.assertEqual(payload["alarm"], expected)
+                self.assertNotIn("clearAlarms", payload)
 
     def test_cmd_edit_due_date_carries_every_copy_of_the_due_alarm(self):
         from datetime import datetime

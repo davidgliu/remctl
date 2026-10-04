@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.3.1 — 2026-10-04
+
+### Fixes
+
+- Making a timed reminder all-day now removes the alarms that matched its due time, instead of moving them to midnight ([#60](https://github.com/viticci/remctl/issues/60)). Custom alarms stay as they are, and an explicit `--alarm` still takes precedence. The shared fix applies to the CLI, MCP tools, and plugins. Thanks to @elmgate for the report.
+
 ## 2.3.0 — 2026-10-03
 
 ### New
