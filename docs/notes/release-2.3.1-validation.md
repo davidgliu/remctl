@@ -1,6 +1,6 @@
 # RemCTL 2.3.1 release validation
 
-Verified on October 4, 2026. This is a local release candidate; it has not been published or tagged on GitHub. Issue [#60](https://github.com/viticci/remctl/issues/60) remains open pending publication.
+Published on October 4, 2026 from commit `fa771b48df15a7528df1a4c3bf9f09bb7cbba430`, tagged `v2.3.1`. The [public release](https://github.com/viticci/remctl/releases/tag/v2.3.1) is the latest release, not a draft or prerelease. Issue [#60](https://github.com/viticci/remctl/issues/60) was closed as completed by `viticci` after publication and public-download verification.
 
 ## Shared fix
 
@@ -55,3 +55,5 @@ Both Developer ID apps and the final disk image were accepted by Apple, stapled,
 | Bundled protected runtime ID | `3b102ae2562c5bf4ef1b45e224d715e53541cab43931bc3de5548f36676904fd` |
 
 Build and notarization receipts are under `.build/release-2.3.1`. Publication assets and notes are under `dist/2.3.1`. Acceptance scripts and results are `/tmp/remctl-231-*`; test/install logs and package audits are `/tmp/remctl-2.3.1-*`. The release does not require a new permission grant when upgrading the existing signing route. Installing its bundled protected runtime requires the normal administrator authorization; this Mac retained its already installed runtime.
+
+Both public assets were downloaded without authentication. Their sizes, GitHub asset digests, local SHA-256 hashes, and exact bytes match the verified publication assets. The downloaded disk image's stapled ticket and Gatekeeper assessment pass. The release and issue comment were created under `viticci`; the issue's API readback confirms `state: closed`, `state_reason: completed`, and `closed_by: viticci`. The installed-surface audit still passes all 41 comparisons after publication.
