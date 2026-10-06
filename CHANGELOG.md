@@ -4,7 +4,7 @@
 
 ### New
 
-- `show` reads built-in and custom smart lists by name. Custom membership is the live filter, grouped by sections when the smart list has them. A regular list still wins when the name collides; `--list-id` still means a regular list.
+- `show` reads built-in and custom smart lists by name. Custom membership is the live filter, grouped by sections when the smart list has them. A regular list still wins when the name collides; `--list-id` still means a regular list. Smart-list `--json` rows include `smartList.section` and `smartList.sectionId` (`null` when unsectioned).
 
 ## 2.3.0 — 2026-10-03
 

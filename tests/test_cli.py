@@ -1567,6 +1567,7 @@ class CliTests(unittest.TestCase):
         self.assertEqual(payload[0]["section"], "Dairy, Eggs & Cheese")
         self.assertEqual(payload[0]["sectionEmoji"], "🥛")
         self.assertNotIn("smartList", payload[0])
+        self.assertNotIn("sectionId", payload[0])
 
     def _show_ns(self, name=None, list_id=None, **kwargs):
         values = dict(
@@ -1719,7 +1720,10 @@ class CliTests(unittest.TestCase):
         self.assertEqual(payload[0]["smartList"]["kind"], "custom")
         self.assertEqual(payload[0]["smartList"]["id"], 1)
         self.assertEqual(payload[0]["smartList"]["objectUUID"], "SMART-TODO")
+        self.assertIsNone(payload[0]["smartList"]["section"])
+        self.assertIsNone(payload[0]["smartList"]["sectionId"])
         self.assertNotIn("section", payload[0])
+        self.assertNotIn("sectionId", payload[0])
 
     def test_show_sectioned_custom_smart_list_drops_stale_memberships(self):
         now = self.remctl.datetime.now()
@@ -1728,6 +1732,7 @@ class CliTests(unittest.TestCase):
             {**self._show_row(1, "Stale Next membership", "REM-STALE"), "list_name": "Work"},
             {**self._show_row(2, "Flagged subtask", "REM-SUB"), "ZFLAGGED": 1, "ZPARENTREMINDER": 99, "list_name": "Work"},
             {**self._show_row(3, "Pay the water bill", "REM-TODAY"), "ZDUEDATE": today_ts, "ZDISPLAYDATEDATE": today_ts, "list_name": "Work"},
+            {**self._show_row(4, "Unsectioned flagged", "REM-LOOSE"), "ZFLAGGED": 1, "list_name": "Work"},
         ]
         smart_ref = {
             "id": 1,
@@ -1740,13 +1745,27 @@ class CliTests(unittest.TestCase):
         payload = self._run_show_smart_list(
             smart_ref,
             rows,
-            sections=[{"ZDISPLAYNAME": "Next", "ZCKIDENTIFIER": "NEXT-ID"}],
-            memberships={"REM-STALE": "Next", "REM-SUB": "Next", "REM-TODAY": "Next"},
+            sections=[
+                {"ZDISPLAYNAME": "Next", "ZCKIDENTIFIER": "NEXT-ID"},
+                {"ZDISPLAYNAME": "On Deck", "ZCKIDENTIFIER": "ON-DECK-ID"},
+            ],
+            memberships={
+                "REM-STALE": "Next",
+                "REM-SUB": "Next",
+                "REM-TODAY": "On Deck",
+            },
         )
-        by_title = {item["title"]: item.get("section") for item in payload}
+        by_title = {item["title"]: item for item in payload}
         self.assertNotIn("Stale Next membership", by_title)
-        self.assertEqual(by_title["Flagged subtask"], "Next")
-        self.assertEqual(by_title["Pay the water bill"], "Next")
+        self.assertEqual(by_title["Flagged subtask"]["section"], "Next")
+        self.assertEqual(by_title["Flagged subtask"]["smartList"]["section"], "Next")
+        self.assertEqual(by_title["Flagged subtask"]["smartList"]["sectionId"], "NEXT-ID")
+        self.assertEqual(by_title["Pay the water bill"]["smartList"]["section"], "On Deck")
+        self.assertEqual(by_title["Pay the water bill"]["smartList"]["sectionId"], "ON-DECK-ID")
+        self.assertIsNone(by_title["Unsectioned flagged"]["smartList"]["section"])
+        self.assertIsNone(by_title["Unsectioned flagged"]["smartList"]["sectionId"])
+        self.assertNotIn("section", by_title["Unsectioned flagged"])
+        self.assertNotIn("sectionId", by_title["Unsectioned flagged"])
 
     def test_show_builtin_flagged_json_shape(self):
         rows = [{**self._show_row(1, "Starred", "REM-1"), "ZFLAGGED": 1, "list_name": "Work"}]
@@ -1762,6 +1781,9 @@ class CliTests(unittest.TestCase):
         self.assertEqual(payload[0]["smartList"]["kind"], "built-in")
         self.assertEqual(payload[0]["smartList"]["title"], "Flagged")
         self.assertEqual(payload[0]["smartList"]["smartListType"], "com.apple.reminders.smartlist.flagged")
+        self.assertIsNone(payload[0]["smartList"]["section"])
+        self.assertIsNone(payload[0]["smartList"]["sectionId"])
+        self.assertNotIn("sectionId", payload[0])
 
     def test_cmd_show_routes_smart_list_without_changing_regular_list_query(self):
         db = object()
