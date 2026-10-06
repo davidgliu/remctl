@@ -102,6 +102,7 @@ Upgrades keep the install's signing route: `git pull && ./install.sh --from-sour
 | Flagged | `remctl flagged --json` | `flagged` |
 | Search | `remctl search "query" [--completed] [--list NAME\|--list-id ID] [--limit N --offset N] --json` | `search` |
 | One list, in Reminders' order | `remctl show Work --json`, `remctl show --list-id 153 --json` | `show_list` |
+| A smart list's live membership | `remctl show "To Do" --json`, `remctl show Flagged --json` | `show_list` or `run` |
 | All lists with ids | `remctl lists --json` | `lists` |
 | One list with section ids and sharees | `remctl list-info Work --json` | `get_list` |
 | Check an address for a location alarm | `remctl location-lookup "ADDRESS" --json` | `resolve_location` |
