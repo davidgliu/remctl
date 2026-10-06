@@ -54,6 +54,7 @@ from remctl_smart_lists import (
     decode_smart_list_filter_blob,
     encode_supported_filter_payload,
     normalize_match_operation,
+    reminder_matches_smart_list_filter,
 )
 
 try:
@@ -245,7 +246,7 @@ def show_splash():
     print()
     print(C.dim("  Commands:"))
     print(C.dim("    today       Due today + overdue          search      Search reminders"))
-    print(C.dim("    show <list> Show list (by section)       add \"title\" Create reminder"))
+    print(C.dim("    show <list> Show list or smart list      add \"title\" Create reminder"))
     print(C.dim("    info <id>   Full detail view             done <id>   Complete reminder"))
     print(C.dim("    upcoming    Next 7 days                  flagged     Flagged reminders"))
     print(C.dim("    urgent      Urgent reminders             stats       Statistics"))
@@ -1523,6 +1524,37 @@ def resolve_required_list_target_or_die(db, *, name=None, list_id=None, allow_gr
     return resolve_list_or_die(db, name=name, list_id=list_id, allow_groups=allow_groups, json_mode=json_mode)
 
 
+def _as_smart_list_show_target(smart_result):
+    target = dict(smart_result)
+    target["isSmartList"] = True
+    return target
+
+
+def resolve_show_target_or_die(db, *, name=None, list_id=None, json_mode=False):
+    """Resolve `show` to a list, group, or smart list. Regular lists win."""
+    if (name and list_id is not None) or (not name and list_id is None):
+        return resolve_required_list_target_or_die(
+            db, name=name, list_id=list_id, allow_groups=True, json_mode=json_mode
+        )
+    list_result = resolve_list_ref(db, name=name, list_id=list_id, allow_groups=True)
+    if list_result and not list_result.get("error"):
+        return list_result
+    if list_result and list_result.get("error"):
+        requested = f"id {list_id}" if list_id is not None else name
+        _print_list_resolution_error(requested, list_result, json_mode=json_mode)
+        sys.exit(1)
+    if name and list_id is None:
+        smart_result = resolve_smart_list_ref(db, name=name)
+        if smart_result and not smart_result.get("error"):
+            return _as_smart_list_show_target(smart_result)
+        if smart_result and smart_result.get("error"):
+            _print_smart_list_resolution_error(name, smart_result)
+            sys.exit(1)
+    return resolve_list_or_die(
+        db, name=name, list_id=list_id, allow_groups=True, json_mode=json_mode
+    )
+
+
 
 def bridge_list_target_payload(list_ref):
     payload = {"list": list_ref["title"]}
@@ -1597,7 +1629,7 @@ def resolve_required_group_target_or_die(db, *, name=None, group_id=None):
 
 
 def smart_list_ref_payload(row, *, requested=None, method="exact"):
-    return {
+    payload = {
         "id": row["Z_PK"],
         "title": smart_list_display_name(row),
         "objectUUID": row["ZCKIDENTIFIER"],
@@ -1606,6 +1638,9 @@ def smart_list_ref_payload(row, *, requested=None, method="exact"):
         "kind": "custom" if row["ZSMARTLISTTYPE"] == CUSTOM_SMART_LIST_TYPE else "built-in",
         "smartListType": row["ZSMARTLISTTYPE"],
     }
+    if _row_has_key(row, "ZFILTERDATA"):
+        payload["filterData"] = row["ZFILTERDATA"]
+    return payload
 
 
 def resolve_smart_list_ref(db, name=None, smart_list_id=None):
@@ -2296,6 +2331,153 @@ def q_smart_list_sections(db, smart_list_pk):
         ).fetchall()
     except sqlite3.OperationalError:
         return []
+
+
+def q_smart_list_section_memberships(db, smart_list_pk):
+    try:
+        row = db.execute(
+            "SELECT ZMEMBERSHIPSOFREMINDERSINSECTIONSASDATA FROM ZREMCDBASELIST WHERE Z_PK = ?",
+            (smart_list_pk,),
+        ).fetchone()
+    except sqlite3.OperationalError:
+        return {}
+    if not row or not row[0]:
+        return {}
+    try:
+        data = json.loads(row[0])
+    except (json.JSONDecodeError, TypeError):
+        return {}
+    g2n = {
+        section["ZCKIDENTIFIER"]: section["ZDISPLAYNAME"]
+        for section in q_smart_list_sections(db, smart_list_pk)
+    }
+    return {
+        m["memberID"]: g2n[m["groupID"]]
+        for m in data.get("memberships", [])
+        if m.get("groupID") in g2n and m.get("memberID") and not m.get("isObsolete")
+    }
+
+
+def q_custom_smart_list_filter_payload(db, smart_ref):
+    if smart_ref.get("kind") != "custom":
+        return None
+    blob = smart_ref.get("filterData")
+    if blob is None:
+        try:
+            row = db.execute(
+                "SELECT ZFILTERDATA FROM ZREMCDBASELIST WHERE Z_PK = ?",
+                (smart_ref["id"],),
+            ).fetchone()
+        except (AttributeError, sqlite3.Error, TypeError):
+            return None
+        if row is None:
+            return None
+        blob = row["ZFILTERDATA"] if _row_has_key(row, "ZFILTERDATA") else row[0]
+    return decode_smart_list_filter_blob(blob).get("payload")
+
+
+def q_list_ckids_by_pks(db, list_pks):
+    pks = sorted({pk for pk in list_pks if pk})
+    if not pks:
+        return {}
+    placeholders = ",".join("?" for _ in pks)
+    try:
+        rows = db.execute(
+            f"SELECT Z_PK, ZCKIDENTIFIER FROM ZREMCDBASELIST WHERE Z_PK IN ({placeholders})",
+            pks,
+        ).fetchall()
+    except (AttributeError, sqlite3.Error, TypeError):
+        return {}
+    return {row["Z_PK"]: row["ZCKIDENTIFIER"] for row in rows}
+
+
+def smart_list_filter_subject(item, *, tags=None, list_id=None):
+    due_raw = row_shown_date(item)
+    due = due_raw if isinstance(due_raw, datetime) else ts(due_raw)
+    return {
+        "flagged": _item_is_flagged(item),
+        "priority": _priority_value_from_item(item),
+        "due": due,
+        "all_day": _item_is_all_day(item),
+        "tags": tags or [],
+        "list_id": list_id,
+        "list_name": _list_name_from_item(item),
+    }
+
+
+def filter_custom_smart_list_items(db, items, smart_ref, *, hashtags_by_pk=None, now=None):
+    payload = q_custom_smart_list_filter_payload(db, smart_ref)
+    if not payload:
+        return items
+    hashtags_by_pk = hashtags_by_pk or {}
+    list_ckids = {}
+    if "lists" in payload:
+        list_ckids = q_list_ckids_by_pks(db, [_item_get(item, "ZLIST") for item in items])
+    matched = []
+    for item in items:
+        pk = _item_get(item, "Z_PK")
+        subject = smart_list_filter_subject(
+            item,
+            tags=hashtags_by_pk.get(pk, []),
+            list_id=list_ckids.get(_item_get(item, "ZLIST")),
+        )
+        if reminder_matches_smart_list_filter(payload, subject, now=now):
+            matched.append(item)
+    return matched
+
+
+def q_live_reminders(db, *, completed=False, top_level=False):
+    clauses = [LIVE_REMINDER_SQL]
+    if not completed:
+        clauses.append("r.ZCOMPLETED = 0")
+    if top_level:
+        clauses.append("(r.ZPARENTREMINDER IS NULL OR r.ZPARENTREMINDER = 0)")
+    return db.execute(
+        f"SELECT {rem_cols(db)} FROM ZREMCDREMINDER r LEFT JOIN ZREMCDBASELIST l "
+        f"ON r.ZLIST = l.Z_PK WHERE {' AND '.join(clauses)} ORDER BY r.Z_PK"
+    ).fetchall()
+
+
+def q_scheduled(db):
+    due_column = due_filter_expr(db)
+    return db.execute(
+        f"SELECT {rem_cols(db)} FROM ZREMCDREMINDER r LEFT JOIN ZREMCDBASELIST l "
+        f"ON r.ZLIST = l.Z_PK WHERE {LIVE_REMINDER_SQL} AND r.ZCOMPLETED = 0 "
+        f"AND {due_column} IS NOT NULL ORDER BY {due_column}"
+    ).fetchall()
+
+
+def q_assigned(db):
+    due_column = due_expr()
+    return db.execute(
+        f"SELECT {rem_cols(db)} FROM ZREMCDREMINDER r LEFT JOIN ZREMCDBASELIST l "
+        f"ON r.ZLIST = l.Z_PK WHERE {LIVE_REMINDER_SQL} AND r.ZCOMPLETED = 0 "
+        "AND EXISTS ("
+        "SELECT 1 FROM ZREMCDOBJECT a WHERE +a.Z_ENT = 21 AND +a.ZMARKEDFORDELETION = 0 "
+        "AND a.ZREMINDER1 = r.Z_PK"
+        f") ORDER BY {due_column} NULLS LAST"
+    ).fetchall()
+
+
+def q_smart_list_show_items(db, smart_ref, *, completed=False):
+    smart_type = smart_ref.get("smartListType") or ""
+    if smart_ref.get("kind") == "custom" or smart_type == CUSTOM_SMART_LIST_TYPE:
+        return q_live_reminders(db, completed=completed, top_level=False)
+    if smart_type == "com.apple.reminders.smartlist.today":
+        return q_due_today(db, include_overdue=True)
+    if smart_type == "com.apple.reminders.smartlist.flagged":
+        return q_flagged(db)
+    if smart_type == "com.apple.reminders.smartlist.urgent":
+        return q_urgent(db)
+    if smart_type == "com.apple.reminders.smartlist.scheduled":
+        return q_scheduled(db)
+    if smart_type == "com.apple.reminders.smartlist.assigned":
+        return q_assigned(db)
+    if smart_type == "com.apple.reminders.smartlist.completed":
+        return q_live_reminders(db, completed=True, top_level=True)
+    if smart_type == "com.apple.reminders.smartlist.all":
+        return q_live_reminders(db, completed=completed, top_level=True)
+    return q_live_reminders(db, completed=completed, top_level=True)
 
 
 def q_section_member_counts(db, list_pk):
@@ -9264,17 +9446,95 @@ def cmd_show_group(a, db, group_ref):
     print(f"\n{len(items)} reminder{'s' if len(items) != 1 else ''}")
 
 
+def cmd_show_smart_list(a, db, smart_ref):
+    secs = q_smart_list_sections(db, smart_ref["id"])
+    memberships = q_smart_list_section_memberships(db, smart_ref["id"]) if secs else {}
+    items = q_smart_list_show_items(db, smart_ref, completed=a.completed)
+    pks = [item["Z_PK"] for item in items]
+    sc, ht = preload_extras(db, pks)
+    if smart_ref.get("kind") == "custom":
+        items = filter_custom_smart_list_items(db, items, smart_ref, hashtags_by_pk=ht)
+        hint = q_manual_sort_hint(
+            db, CUSTOM_SMART_LIST_MANUAL_ORDER_TYPE, smart_ref.get("objectUUID")
+        )
+        if hint:
+            items = sort_reminder_rows_by_identifier_order(items, hint.get("topLevelElementIDs"))
+        pks = [item["Z_PK"] for item in items]
+        sc = {pk: sc[pk] for pk in pks if pk in sc}
+        ht = {pk: ht[pk] for pk in pks if pk in ht}
+    att = preload_attachments(db, pks)
+    ind = preload_indicators(db, pks)
+    list_name = smart_ref["title"]
+    smart_payload = {
+        "id": smart_ref["id"],
+        "title": list_name,
+        "kind": smart_ref.get("kind"),
+        "smartListType": smart_ref.get("smartListType"),
+    }
+    if smart_ref.get("objectUUID"):
+        smart_payload["objectUUID"] = smart_ref["objectUUID"]
+    if a.json:
+        section_id_by_name = {
+            section["ZDISPLAYNAME"]: section["ZCKIDENTIFIER"]
+            for section in secs
+            if section.get("ZDISPLAYNAME") and section.get("ZCKIDENTIFIER")
+        }
+        payload = []
+        for item in items:
+            row = to_dict(
+                item, db, section=memberships.get(item["ZCKIDENTIFIER"]), _sc=sc, _ht=ht, _att=att
+            )
+            section_name = memberships.get(item["ZCKIDENTIFIER"])
+            smart_list = dict(smart_payload)
+            smart_list["section"] = section_name or None
+            smart_list["sectionId"] = section_id_by_name.get(section_name) if section_name else None
+            row["smartList"] = smart_list
+            payload.append(row)
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+        return
+    if not items:
+        print(f"No {'active ' if not a.completed else ''}reminders in smart list '{safe_display(list_name)}'")
+        return
+    if getattr(a, "format", None) == "table":
+        print_reminder_table(items, db, args=a)
+        return
+    print(f"{C.bold(safe_display(list_name))} (smart list):")
+    img = _image_render_config_verbose(a)
+    if secs:
+        sec_items, unsectioned = {}, []
+        for item in items:
+            section_name = memberships.get(item["ZCKIDENTIFIER"])
+            if section_name:
+                sec_items.setdefault(section_name, []).append(item)
+            else:
+                unsectioned.append(item)
+        for item in unsectioned:
+            print(fmt(item, db, verbose=a.verbose, _sc=sc, _ht=ht, _img=img, _ind=ind))
+        for section_name in [section["ZDISPLAYNAME"] for section in secs]:
+            if section_name in sec_items:
+                print(f"\n  {C.bold(f'[{safe_display(section_name)}]')}")
+                for item in sec_items[section_name]:
+                    print(fmt(item, db, verbose=a.verbose, indent="  ", _sc=sc, _ht=ht, _img=img, _ind=ind))
+    else:
+        for item in items:
+            print(fmt(item, db, verbose=a.verbose, _sc=sc, _ht=ht, _img=img, _ind=ind))
+    print(f"\n{len(items)} reminder{'s' if len(items) != 1 else ''}")
+
+
 def cmd_show(a):
     if eventkit_read_requested(a):
         cmd_show_eventkit(a)
         return
     db = open_db()
-    list_ref = resolve_required_list_target_or_die(
+    list_ref = resolve_show_target_or_die(
         db,
         name=getattr(a, "list", None),
         list_id=getattr(a, "list_id", None),
-        allow_groups=True,
+        json_mode=getattr(a, "json", False),
     )
+    if list_ref.get("isSmartList"):
+        cmd_show_smart_list(a, db, list_ref)
+        return
     if list_ref.get("isGroup"):
         cmd_show_group(a, db, list_ref)
         return
@@ -11899,7 +12159,7 @@ _remctl() {
         'smart-lists:Inspect Reminders smart lists'
         'templates:Inspect saved Reminders templates'
         'template-info:Show a saved Reminders template'
-        'show:Show reminders in a list'
+        'show:Show reminders in a list, group, or smart list'
         'add:Add a reminder'
         'done:Complete reminders'
         'undone:Uncomplete reminders'
@@ -12553,7 +12813,7 @@ complete -c remctl -n "__fish_use_subcommand" -a group-delete -d "Delete a Remin
 complete -c remctl -n "__fish_use_subcommand" -a smart-lists -d "Inspect Reminders smart lists"
 complete -c remctl -n "__fish_use_subcommand" -a templates -d "Inspect saved Reminders templates"
 complete -c remctl -n "__fish_use_subcommand" -a template-info -d "Show a saved Reminders template"
-complete -c remctl -n "__fish_use_subcommand" -a show -d "Show reminders in a list"
+complete -c remctl -n "__fish_use_subcommand" -a show -d "Show reminders in a list, group, or smart list"
 complete -c remctl -n "__fish_use_subcommand" -a add -d "Add a reminder"
 complete -c remctl -n "__fish_use_subcommand" -a done -d "Complete reminders"
 complete -c remctl -n "__fish_use_subcommand" -a undone -d "Uncomplete reminders"
@@ -14529,13 +14789,13 @@ def build_parser():
 
     c = sub.add_parser(
         "show",
-        help="Show reminders in a list in Reminders display order",
+        help="Show reminders in a list, group, or smart list",
         description=(
-            "Show reminders in a list, grouped by section. Signed-host database reads follow "
-            "Reminders' stored manual display order when it is available."
+            "Show reminders in a list, group, or smart list. "
+            "Signed-host database reads follow Reminders' stored manual display order when it is available."
         ),
     )
-    c.add_argument("list", nargs="?", help="List name")
+    c.add_argument("list", nargs="?", help="List, group, or smart-list name")
     c.add_argument("--list-id", type=int, help="Show a list by stable numeric ID")
     c.add_argument("--completed", action="store_true", help="Include completed")
     eventkit_read(c); vb(c); js(c); display_format(c); img(c)

@@ -1415,7 +1415,7 @@ class CliTests(unittest.TestCase):
             mock.patch.object(self.remctl, "open_db", return_value=db),
             mock.patch.object(
                 self.remctl,
-                "resolve_required_list_target_or_die",
+                "resolve_show_target_or_die",
                 return_value={"id": 7, "title": "Projects"},
             ),
             mock.patch.object(self.remctl, "q_reminders", return_value=[]) as q_reminders,
@@ -1481,7 +1481,7 @@ class CliTests(unittest.TestCase):
             mock.patch.object(self.remctl, "open_db", return_value=object()),
             mock.patch.object(
                 self.remctl,
-                "resolve_required_list_target_or_die",
+                "resolve_show_target_or_die",
                 return_value={"id": 1, "title": "Groceries", "isGroceries": True},
             ),
             mock.patch.object(self.remctl, "q_reminders", return_value=rows),
@@ -1530,7 +1530,7 @@ class CliTests(unittest.TestCase):
             mock.patch.object(self.remctl, "open_db", return_value=object()),
             mock.patch.object(
                 self.remctl,
-                "resolve_required_list_target_or_die",
+                "resolve_show_target_or_die",
                 return_value={"id": 1, "title": "Groceries", "isGroceries": True},
             ),
             mock.patch.object(self.remctl, "q_reminders", return_value=rows),
@@ -1566,6 +1566,274 @@ class CliTests(unittest.TestCase):
         payload = json.loads(stdout.getvalue())
         self.assertEqual(payload[0]["section"], "Dairy, Eggs & Cheese")
         self.assertEqual(payload[0]["sectionEmoji"], "🥛")
+        self.assertNotIn("smartList", payload[0])
+        self.assertNotIn("sectionId", payload[0])
+
+    def _show_ns(self, name=None, list_id=None, **kwargs):
+        values = dict(
+            list=name,
+            list_id=list_id,
+            completed=False,
+            json=True,
+            format=None,
+            verbose=False,
+            images=False,
+            image_mode=None,
+            image_width=None,
+        )
+        values.update(kwargs)
+        return SimpleNamespace(**values)
+
+    def _run_show_smart_list(self, smart_ref, rows, *, sections=None, memberships=None):
+        extras = {row["Z_PK"]: 0 for row in rows}
+        tags = {row["Z_PK"]: [] for row in rows}
+        with (
+            mock.patch.object(self.remctl, "q_smart_list_sections", return_value=sections or []),
+            mock.patch.object(
+                self.remctl,
+                "q_smart_list_section_memberships",
+                return_value=memberships or {},
+            ),
+            mock.patch.object(self.remctl, "q_smart_list_show_items", return_value=rows),
+            mock.patch.object(self.remctl, "q_manual_sort_hint", return_value=None),
+            mock.patch.object(self.remctl, "preload_extras", return_value=(extras, tags)),
+            mock.patch.object(self.remctl, "preload_attachments", return_value={}),
+            mock.patch.object(self.remctl, "preload_indicators", return_value={}),
+            mock.patch.object(self.remctl, "q_rich_link", return_value=None),
+            mock.patch.object(self.remctl, "q_assignment", return_value=None),
+            contextlib.redirect_stdout(io.StringIO()) as stdout,
+        ):
+            self.remctl.cmd_show_smart_list(self._show_ns("To Do"), object(), smart_ref)
+        return json.loads(stdout.getvalue())
+
+    def test_resolve_show_prefers_regular_list_over_same_named_smart_list(self):
+        db = self._smart_list_db()
+        db.execute(
+            "INSERT INTO ZREMCDBASELIST "
+            "(Z_PK, ZNAME, ZCKIDENTIFIER, ZMARKEDFORDELETION, Z_ENT, ZSMARTLISTTYPE, ZFILTERDATA, "
+            "ZMINIMUMSUPPORTEDAPPVERSION, ZEFFECTIVEMINIMUMSUPPORTEDAPPVERSION, ZISPINNEDBYCURRENTUSER, ZPINNEDDATE) "
+            "VALUES (11, 'Flagged', 'LIST-FLAGGED', 0, 3, NULL, NULL, NULL, NULL, 0, NULL)"
+        )
+        try:
+            target = self.remctl.resolve_show_target_or_die(db, name="Flagged")
+        finally:
+            db.close()
+        self.assertFalse(target.get("isSmartList"))
+        self.assertEqual(target["id"], 11)
+        self.assertEqual(target["title"], "Flagged")
+
+    def test_resolve_show_uses_custom_and_builtin_smart_lists(self):
+        db = self._smart_list_db()
+        db.execute(
+            "INSERT INTO ZREMCDBASELIST "
+            "(Z_PK, ZNAME, ZCKIDENTIFIER, ZMARKEDFORDELETION, Z_ENT, ZSMARTLISTTYPE, ZFILTERDATA, "
+            "ZMINIMUMSUPPORTEDAPPVERSION, ZEFFECTIVEMINIMUMSUPPORTEDAPPVERSION, ZISPINNEDBYCURRENTUSER, ZPINNEDDATE) "
+            "VALUES (3, 'To Do', 'CUSTOM-TODO', 0, 4, ?, ?, 20220430, 20220430, 0, NULL)",
+            (self.remctl.CUSTOM_SMART_LIST_TYPE, b'{"operation":"or","date":{"today":true},"flagged":true}'),
+        )
+        try:
+            custom = self.remctl.resolve_show_target_or_die(db, name="To Do")
+            builtin = self.remctl.resolve_show_target_or_die(db, name="Flagged")
+        finally:
+            db.close()
+        self.assertTrue(custom["isSmartList"])
+        self.assertEqual(custom["kind"], "custom")
+        self.assertEqual(custom["id"], 3)
+        self.assertTrue(builtin["isSmartList"])
+        self.assertEqual(builtin["kind"], "built-in")
+        self.assertEqual(builtin["smartListType"], "com.apple.reminders.smartlist.flagged")
+
+    def test_resolve_show_list_id_does_not_select_smart_lists(self):
+        db = self._smart_list_db()
+        try:
+            with (
+                contextlib.redirect_stderr(io.StringIO()) as stderr,
+                self.assertRaises(SystemExit) as raised,
+            ):
+                self.remctl.resolve_show_target_or_die(db, list_id=1)
+        finally:
+            db.close()
+        self.assertEqual(raised.exception.code, 1)
+        self.assertIn("list not found: id 1", stderr.getvalue())
+
+    def test_resolve_show_ambiguous_lists_print_candidate_ids(self):
+        db = self._smart_list_db()
+        db.execute(
+            "INSERT INTO ZREMCDBASELIST "
+            "(Z_PK, ZNAME, ZCKIDENTIFIER, ZMARKEDFORDELETION, Z_ENT, ZSMARTLISTTYPE) "
+            "VALUES (11, 'Work', 'LIST-A', 0, 3, NULL), (12, 'Work', 'LIST-B', 0, 3, NULL)"
+        )
+        try:
+            with (
+                contextlib.redirect_stderr(io.StringIO()) as stderr,
+                self.assertRaises(SystemExit) as raised,
+            ):
+                self.remctl.resolve_show_target_or_die(db, name="Work")
+        finally:
+            db.close()
+        self.assertEqual(raised.exception.code, 1)
+        self.assertIn("multiple lists match 'Work'", stderr.getvalue())
+        self.assertIn("11 (Work)", stderr.getvalue())
+        self.assertIn("12 (Work)", stderr.getvalue())
+
+    def test_resolve_show_ambiguous_smart_lists_print_candidate_ids(self):
+        db = self._smart_list_db()
+        db.execute(
+            "INSERT INTO ZREMCDBASELIST "
+            "(Z_PK, ZNAME, ZCKIDENTIFIER, ZMARKEDFORDELETION, Z_ENT, ZSMARTLISTTYPE, ZFILTERDATA) "
+            "VALUES (3, 'To Do', 'TODO-A', 0, 4, ?, '{}'), (4, 'To Do', 'TODO-B', 0, 4, ?, '{}')",
+            (self.remctl.CUSTOM_SMART_LIST_TYPE, self.remctl.CUSTOM_SMART_LIST_TYPE),
+        )
+        try:
+            with (
+                contextlib.redirect_stderr(io.StringIO()) as stderr,
+                self.assertRaises(SystemExit) as raised,
+            ):
+                self.remctl.resolve_show_target_or_die(db, name="To Do")
+        finally:
+            db.close()
+        self.assertEqual(raised.exception.code, 1)
+        self.assertIn("multiple smart lists match 'To Do'", stderr.getvalue())
+        self.assertIn("3 (To Do)", stderr.getvalue())
+        self.assertIn("4 (To Do)", stderr.getvalue())
+
+    def test_show_custom_unsectioned_evaluates_live_filter_json_shape(self):
+        now = self.remctl.datetime.now()
+        today_ts = self.remctl.to_ts(now)
+        rows = [
+            {**self._show_row(1, "Flagged task", "REM-FLAG"), "ZFLAGGED": 1, "list_name": "Work"},
+            {**self._show_row(2, "Due today", "REM-TODAY"), "ZDUEDATE": today_ts, "ZDISPLAYDATEDATE": today_ts, "list_name": "Work"},
+            {**self._show_row(3, "Neither", "REM-SKIP"), "list_name": "Work"},
+        ]
+        smart_ref = {
+            "id": 1,
+            "title": "To Do",
+            "objectUUID": "SMART-TODO",
+            "kind": "custom",
+            "smartListType": self.remctl.CUSTOM_SMART_LIST_TYPE,
+            "filterData": b'{"operation":"or","date":{"today":true},"flagged":true}',
+        }
+        payload = self._run_show_smart_list(smart_ref, rows)
+        titles = [item["title"] for item in payload]
+        self.assertEqual(titles, ["Flagged task", "Due today"])
+        self.assertEqual(payload[0]["smartList"]["title"], "To Do")
+        self.assertEqual(payload[0]["smartList"]["kind"], "custom")
+        self.assertEqual(payload[0]["smartList"]["id"], 1)
+        self.assertEqual(payload[0]["smartList"]["objectUUID"], "SMART-TODO")
+        self.assertIsNone(payload[0]["smartList"]["section"])
+        self.assertIsNone(payload[0]["smartList"]["sectionId"])
+        self.assertNotIn("section", payload[0])
+        self.assertNotIn("sectionId", payload[0])
+
+    def test_show_sectioned_custom_smart_list_drops_stale_memberships(self):
+        now = self.remctl.datetime.now()
+        today_ts = self.remctl.to_ts(now)
+        rows = [
+            {**self._show_row(1, "Stale Next membership", "REM-STALE"), "list_name": "Work"},
+            {**self._show_row(2, "Flagged subtask", "REM-SUB"), "ZFLAGGED": 1, "ZPARENTREMINDER": 99, "list_name": "Work"},
+            {**self._show_row(3, "Pay the water bill", "REM-TODAY"), "ZDUEDATE": today_ts, "ZDISPLAYDATEDATE": today_ts, "list_name": "Work"},
+            {**self._show_row(4, "Unsectioned flagged", "REM-LOOSE"), "ZFLAGGED": 1, "list_name": "Work"},
+        ]
+        smart_ref = {
+            "id": 1,
+            "title": "To Do",
+            "objectUUID": "SMART-TODO",
+            "kind": "custom",
+            "smartListType": self.remctl.CUSTOM_SMART_LIST_TYPE,
+            "filterData": b'{"operation":"or","date":{"today":true},"flagged":true}',
+        }
+        payload = self._run_show_smart_list(
+            smart_ref,
+            rows,
+            sections=[
+                {"ZDISPLAYNAME": "Next", "ZCKIDENTIFIER": "NEXT-ID"},
+                {"ZDISPLAYNAME": "On Deck", "ZCKIDENTIFIER": "ON-DECK-ID"},
+            ],
+            memberships={
+                "REM-STALE": "Next",
+                "REM-SUB": "Next",
+                "REM-TODAY": "On Deck",
+            },
+        )
+        by_title = {item["title"]: item for item in payload}
+        self.assertNotIn("Stale Next membership", by_title)
+        self.assertEqual(by_title["Flagged subtask"]["section"], "Next")
+        self.assertEqual(by_title["Flagged subtask"]["smartList"]["section"], "Next")
+        self.assertEqual(by_title["Flagged subtask"]["smartList"]["sectionId"], "NEXT-ID")
+        self.assertEqual(by_title["Pay the water bill"]["smartList"]["section"], "On Deck")
+        self.assertEqual(by_title["Pay the water bill"]["smartList"]["sectionId"], "ON-DECK-ID")
+        self.assertIsNone(by_title["Unsectioned flagged"]["smartList"]["section"])
+        self.assertIsNone(by_title["Unsectioned flagged"]["smartList"]["sectionId"])
+        self.assertNotIn("section", by_title["Unsectioned flagged"])
+        self.assertNotIn("sectionId", by_title["Unsectioned flagged"])
+
+    def test_show_builtin_flagged_json_shape(self):
+        rows = [{**self._show_row(1, "Starred", "REM-1"), "ZFLAGGED": 1, "list_name": "Work"}]
+        smart_ref = {
+            "id": 9,
+            "title": "Flagged",
+            "objectUUID": "BUILTIN-1",
+            "kind": "built-in",
+            "smartListType": "com.apple.reminders.smartlist.flagged",
+        }
+        payload = self._run_show_smart_list(smart_ref, rows)
+        self.assertEqual(payload[0]["title"], "Starred")
+        self.assertEqual(payload[0]["smartList"]["kind"], "built-in")
+        self.assertEqual(payload[0]["smartList"]["title"], "Flagged")
+        self.assertEqual(payload[0]["smartList"]["smartListType"], "com.apple.reminders.smartlist.flagged")
+        self.assertIsNone(payload[0]["smartList"]["section"])
+        self.assertIsNone(payload[0]["smartList"]["sectionId"])
+        self.assertNotIn("sectionId", payload[0])
+
+    def test_cmd_show_routes_smart_list_without_changing_regular_list_query(self):
+        db = object()
+        args = self._show_ns("To Do")
+        smart_ref = {
+            "id": 1,
+            "title": "To Do",
+            "isSmartList": True,
+            "kind": "custom",
+            "smartListType": self.remctl.CUSTOM_SMART_LIST_TYPE,
+        }
+        with (
+            mock.patch.object(self.remctl, "open_db", return_value=db),
+            mock.patch.object(self.remctl, "resolve_show_target_or_die", return_value=smart_ref),
+            mock.patch.object(self.remctl, "cmd_show_smart_list") as show_smart,
+            mock.patch.object(self.remctl, "q_reminders") as q_reminders,
+        ):
+            self.remctl.cmd_show(args)
+        show_smart.assert_called_once_with(args, db, smart_ref)
+        q_reminders.assert_not_called()
+
+    def test_show_custom_unsectioned_human_output_marks_smart_list(self):
+        rows = [{**self._show_row(1, "Flagged task", "REM-FLAG"), "ZFLAGGED": 1, "list_name": "Work"}]
+        smart_ref = {
+            "id": 1,
+            "title": "To Do",
+            "objectUUID": "SMART-TODO",
+            "kind": "custom",
+            "smartListType": self.remctl.CUSTOM_SMART_LIST_TYPE,
+            "filterData": b'{"flagged":true}',
+        }
+        extras = {1: 0}
+        with (
+            mock.patch.object(self.remctl, "q_smart_list_sections", return_value=[]),
+            mock.patch.object(self.remctl, "q_smart_list_section_memberships", return_value={}),
+            mock.patch.object(self.remctl, "q_smart_list_show_items", return_value=rows),
+            mock.patch.object(self.remctl, "q_manual_sort_hint", return_value=None),
+            mock.patch.object(self.remctl, "preload_extras", return_value=(extras, {1: []})),
+            mock.patch.object(self.remctl, "preload_attachments", return_value={}),
+            mock.patch.object(self.remctl, "preload_indicators", return_value={}),
+            mock.patch.object(self.remctl, "q_rich_link", return_value=None),
+            mock.patch.object(self.remctl, "q_assignment", return_value=None),
+            contextlib.redirect_stdout(io.StringIO()) as stdout,
+        ):
+            self.remctl.cmd_show_smart_list(self._show_ns("To Do", json=False), object(), smart_ref)
+        output = stdout.getvalue()
+        self.assertIn("To Do", output)
+        self.assertIn("(smart list):", output)
+        self.assertIn("Flagged task", output)
+        self.assertIn("1 reminder", output)
 
     def test_show_via_eventkit_json_uses_limited_non_chainable_ids(self):
         bridge_payload = {
@@ -10816,7 +11084,7 @@ class InlineImageTests(unittest.TestCase):
                 mock.patch.object(self.remctl, "open_db", return_value=db),
                 mock.patch.object(
                     self.remctl,
-                    "resolve_required_list_target_or_die",
+                    "resolve_show_target_or_die",
                     return_value={"id": 1, "title": "Projects"},
                 ),
                 mock.patch.object(self.remctl, "q_reminders", return_value=rows),
@@ -11398,7 +11666,7 @@ class InlineImageTests(unittest.TestCase):
                     mock.patch.object(self.remctl, "open_db", return_value=db),
                     mock.patch.object(
                         self.remctl,
-                        "resolve_required_list_target_or_die",
+                        "resolve_show_target_or_die",
                         return_value={"id": 1, "title": "Projects"},
                     ),
                     mock.patch.object(
@@ -11490,7 +11758,7 @@ class InlineImageTests(unittest.TestCase):
             mock.patch.object(self.remctl, "open_db", return_value=db),
             mock.patch.object(
                 self.remctl,
-                "resolve_required_list_target_or_die",
+                "resolve_show_target_or_die",
                 return_value={"id": 1, "title": "Projects"},
             ),
             mock.patch.object(
@@ -11743,7 +12011,7 @@ class InlineImageTests(unittest.TestCase):
                 mock.patch.object(self.remctl, "open_db", return_value=counting),
                 mock.patch.object(
                     self.remctl,
-                    "resolve_required_list_target_or_die",
+                    "resolve_show_target_or_die",
                     return_value={"id": 1, "title": "Projects"},
                 ),
                 mock.patch.object(self.remctl, "q_reminders", return_value=rows),
@@ -12528,7 +12796,7 @@ class TrailingBadgeTests(unittest.TestCase):
                 mock.patch.object(self.remctl, "open_db", return_value=db),
                 mock.patch.object(
                     self.remctl,
-                    "resolve_required_list_target_or_die",
+                    "resolve_show_target_or_die",
                     return_value={"id": 1, "title": "Projects"},
                 ),
                 mock.patch.object(self.remctl, "q_reminders", return_value=rows),
@@ -12609,7 +12877,7 @@ class TrailingBadgeTests(unittest.TestCase):
                 mock.patch.object(self.remctl, "open_db", return_value=counting),
                 mock.patch.object(
                     self.remctl,
-                    "resolve_required_list_target_or_die",
+                    "resolve_show_target_or_die",
                     return_value={"id": 1, "title": "Projects"},
                 ),
                 mock.patch.object(self.remctl, "q_reminders", return_value=rows),

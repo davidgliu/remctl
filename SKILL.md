@@ -102,13 +102,14 @@ Upgrades keep the install's signing route: `git pull && ./install.sh --from-sour
 | Flagged | `remctl flagged --json` | `flagged` |
 | Search | `remctl search "query" [--completed] [--list NAME\|--list-id ID] [--limit N --offset N] --json` | `search` |
 | One list, in Reminders' order | `remctl show Work --json`, `remctl show --list-id 153 --json` | `show_list` |
+| A smart list's live membership | `remctl show "To Do" --json`, `remctl show Flagged --json` | `show_list` or `run` |
 | All lists with ids | `remctl lists --json` | `lists` |
 | One list with section ids and sharees | `remctl list-info Work --json` | `get_list` |
 | Check an address for a location alarm | `remctl location-lookup "ADDRESS" --json` | `resolve_location` |
 | One reminder in full | `remctl info 23880 --json` | `get_reminder` |
 | Groups, sections, tags, subtasks, sharees, stats, smart lists, templates | `remctl groups --json`, `sections --json`, `tags --json`, `subtasks ID --json`, `sharees LIST --json`, `stats --json`, `smart-lists --json`, `templates --json`, `template-info NAME --json` | `run` |
 
-Row fields: `id`, `title`, `list`, `completed`, `flagged`, `urgent`, `priority`, `subtaskCount`, `dueDate`, `allDay`, `deepLink`, plus `notes`, `section`, `recurrence`, and `attachments` when present. `info` adds `alarms`, `earlyReminder`, `tags`, `subtasks`, `assignment`, and the rich-link `url`. `dueDate` is the real due date. `displayDate` appears when Reminders shows the reminder at another time, for example because an absolute alarm still points at an old time. Reminders.app lists and labels the reminder at `displayDate`, and `today`, `overdue`, and `upcoming` place it there too. `attachments[].path` is the host-verified file location, or `null` with `resolved: false` for files not downloaded to this Mac; it does not mean your process can open the file.
+Row fields: `id`, `title`, `list`, `completed`, `flagged`, `urgent`, `priority`, `subtaskCount`, `dueDate`, `allDay`, `deepLink`, plus `notes`, `section`, `recurrence`, and `attachments` when present. `show` of a smart list also puts `section` and `sectionId` on each row's `smartList` object (`null` when the reminder is not in a smart-list section). Regular list `show` JSON has no `smartList` or `sectionId` keys. `info` adds `alarms`, `earlyReminder`, `tags`, `subtasks`, `assignment`, and the rich-link `url`. `dueDate` is the real due date. `displayDate` appears when Reminders shows the reminder at another time, for example because an absolute alarm still points at an old time. Reminders.app lists and labels the reminder at `displayDate`, and `today`, `overdue`, and `upcoming` place it there too. `attachments[].path` is the host-verified file location, or `null` with `resolved: false` for files not downloaded to this Mac; it does not mean your process can open the file.
 
 ## Writing
 
