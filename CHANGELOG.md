@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### New
+
+- `show` reads built-in and custom smart lists by name. Custom membership is the live filter, grouped by sections when the smart list has them. A regular list still wins when the name collides; `--list-id` still means a regular list.
+
 ## 2.3.1 — 2026-10-04
 
 ### Fixes

@@ -788,7 +788,7 @@ TOOLS: tuple[Tool, ...] = (
     Tool(
         "show_list",
         "Show a List",
-        "Return the reminders in one list in Reminders' display order, with sections. Target by list name or list_id.",
+        "Return the reminders in one list, group, or uniquely named smart list, with sections. Target by list name or list_id. Regular lists win when a name collides; list_id never selects a smart list.",
         (
             LIST_NAME,
             LIST_ID,
