@@ -14781,9 +14781,8 @@ def build_parser():
         "show",
         help="Show reminders in a list, group, or smart list",
         description=(
-            "Show reminders in a list or group, or live membership of a built-in or custom "
-            "smart list. Regular lists win when a name matches both. Signed-host database "
-            "reads follow Reminders' stored manual display order when it is available."
+            "Show reminders in a list, group, or smart list. "
+            "Signed-host database reads follow Reminders' stored manual display order when it is available."
         ),
     )
     c.add_argument("list", nargs="?", help="List, group, or smart-list name")
