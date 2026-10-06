@@ -9475,12 +9475,22 @@ def cmd_show_smart_list(a, db, smart_ref):
     if smart_ref.get("objectUUID"):
         smart_payload["objectUUID"] = smart_ref["objectUUID"]
     if a.json:
-        payload = [
-            to_dict(item, db, section=memberships.get(item["ZCKIDENTIFIER"]), _sc=sc, _ht=ht, _att=att)
-            for item in items
-        ]
-        for item in payload:
-            item["smartList"] = dict(smart_payload)
+        section_id_by_name = {
+            section["ZDISPLAYNAME"]: section["ZCKIDENTIFIER"]
+            for section in secs
+            if section.get("ZDISPLAYNAME") and section.get("ZCKIDENTIFIER")
+        }
+        payload = []
+        for item in items:
+            row = to_dict(
+                item, db, section=memberships.get(item["ZCKIDENTIFIER"]), _sc=sc, _ht=ht, _att=att
+            )
+            section_name = memberships.get(item["ZCKIDENTIFIER"])
+            smart_list = dict(smart_payload)
+            smart_list["section"] = section_name or None
+            smart_list["sectionId"] = section_id_by_name.get(section_name) if section_name else None
+            row["smartList"] = smart_list
+            payload.append(row)
         print(json.dumps(payload, indent=2, ensure_ascii=False))
         return
     if not items:
