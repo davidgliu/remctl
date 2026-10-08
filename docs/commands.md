@@ -20,6 +20,7 @@ remctl templates
 remctl template-info "Rome: Things To See"
 remctl show Shopping          # one list, in Reminders' display order
 remctl show --list-id 153
+remctl show "To Do"           # custom or built-in smart list, if no regular list matches
 remctl show Work --completed
 remctl show Family -v
 remctl search "milk"          # titles, notes, and saved links; active reminders
@@ -37,7 +38,12 @@ remctl stats
 
 `search` matches titles, notes, and saved rich links. It ignores case and accents, so `cafe` finds `Café`, and `%`, `_`, and `\` are ordinary characters. `--list NAME` or `--list-id ID` limits it to one list; if several lists share a name, the command stops and prints their ids. Results are newest first, 100 per page. With `--json` and no paging option, the output is a plain array, and stderr warns when more matches exist. `--limit N` (1 to 500) or `--offset N` switch `--json` to a page: `{"items", "count", "total", "offset", "limit", "hasMore", "nextOffset"}`. Pass `nextOffset` as the next `--offset` until `hasMore` is false. A query that starts with `-` needs a separator: `remctl search -- -urgent`.
 
-`show <list>` follows the manual order stored by Reminders. `show <group>` reads every child list and applies each list's own order. A reminder that has not entered the ordering record yet is shown after the ordered ones.
+`show <list>` follows the manual order stored by Reminders. `show <group>` reads every child list and applies each list's own order. `show <smart list>` is read-only live membership: custom lists evaluate the saved filter, built-in lists reuse the same queries as `today` / `flagged` / `urgent` / `scheduled` / `assigned` / `all` / `completed`, and sectioned custom lists group matching reminders under those sections. A reminder that has not entered the ordering record yet is shown after the ordered ones. When a name matches both a regular list and a smart list, the regular list wins. Ambiguous names still fail with candidate ids.
+
+```bash
+remctl show "To Do" --json
+remctl show Flagged --json
+```
 
 `upcoming DAYS` accepts 1 to 3650. The window starts today: `upcoming 1` is today and tomorrow.
 
@@ -206,7 +212,7 @@ remctl delete 23880 23881 --force --json
 
 Without `--private`, `edit ID --url URL` appends the URL to existing notes. If `--notes` is also supplied, it replaces the notes before the URL is appended. `--notes ""` clears the notes.
 
-Rescheduling: when every alarm is an absolute alarm at the old due time, `edit -d` moves all copies, so the time shown in Reminders follows the due date. `edit -d clear` removes those alarms. Other alarms are left alone.
+Rescheduling: when every alarm is an absolute alarm at the old due time, `edit -d` moves all copies to the new time, so the time shown in Reminders follows the due date. A date-only target removes those alarms instead of moving them to midnight. An explicit `--alarm` takes precedence. `edit -d clear` removes matching alarms. Other alarm configurations are left alone.
 
 Moving between lists: `edit -l` and `edit --list-id` use EventKit. Some moves are rejected by EventKit, for example a parent reminder with subtasks or a move across a shared-list boundary. For a pure move, RemCTL then clones the reminder into the destination through ReminderKit, verifies the clone and its subtask count, and deletes the original. The JSON then has `"method": "clone-delete"`, `oldId`, the new `id`, and `subtasksMoved`. Continue with the new `id`. Move first; apply other edits afterwards.
 
@@ -285,7 +291,7 @@ remctl list-delete "Project Y" --force
 
 ### List names and ids
 
-A list can be named positionally or with `-l/--list`, or targeted exactly with `--list-id`. Names resolve in three passes: exact, case-insensitive, then normalized (ignoring decorative punctuation and emoji, so `Weekly 513` matches `🗓️ Weekly 513`). If more than one list matches, the command stops and prints the candidate ids. Passing both a name and `--list-id` is an error. This applies to `show`, `search`, `add`, `edit`, `link`, `export`, `list-info`, the `section-*` commands, `list-edit`, `list-pin`, `list-unpin`, `list-rename`, `list-delete`, and the smart-list `--include-list-id` filter.
+A list can be named positionally or with `-l/--list`, or targeted exactly with `--list-id`. Names resolve in three passes: exact, case-insensitive, then normalized (ignoring decorative punctuation and emoji, so `Weekly 513` matches `🗓️ Weekly 513`). If more than one list matches, the command stops and prints the candidate ids. Passing both a name and `--list-id` is an error. This applies to `show`, `search`, `add`, `edit`, `link`, `export`, `list-info`, the `section-*` commands, `list-edit`, `list-pin`, `list-unpin`, `list-rename`, `list-delete`, and the smart-list `--include-list-id` filter. `show` also accepts a uniquely named built-in or custom smart list when no regular list or group matches; `--list-id` never selects a smart list. If more than one smart list matches, `show` stops and prints those candidate ids.
 
 Write commands that need a real list reject a group and name the child lists you can target instead.
 
@@ -356,6 +362,8 @@ remctl smart-list-delete "Flagged Review" --private --force
 ```
 
 `smart-lists` is read-only. It reports built-in and custom smart lists with numeric id, `objectUUID`, type, `pinned`, `pinnedDate`, and a decoded filter summary. A filter RemCTL cannot decode becomes an `error` field instead of failing the command.
+
+`show NAME` also reads a uniquely named smart list when no ordinary list or group matches that name. Custom membership is evaluated from the saved filter (not from stale section memberships). Built-in lists map to the same live queries as `today`, `flagged`, `urgent`, and the other named views. Location and vehicle filters are not evaluated; those reminders may still appear if another family of the same filter matches. JSON is still an array of reminder objects, each with a `smartList` object (`id`, `title`, `kind`, `smartListType`, `objectUUID`, `section`, `sectionId`). `section` is the smart-list section name, or `null` when the reminder is unsectioned. `sectionId` is that section's stable CloudKit id when Reminders has one, otherwise `null`. Regular `show` JSON is unchanged and has no `smartList` or `sectionId` keys. `--via-eventkit` remains list-only.
 
 The write commands are private. They support the filters that Reminders reliably shows after this write path:
 
