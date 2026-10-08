@@ -1584,11 +1584,33 @@ class CliTests(unittest.TestCase):
         values.update(kwargs)
         return SimpleNamespace(**values)
 
+    def _sqlite_rows(self, rows):
+        if not rows:
+            return []
+        if not isinstance(rows[0], dict):
+            return rows
+        columns = list(rows[0].keys())
+        db = sqlite3.connect(":memory:")
+        db.row_factory = sqlite3.Row
+        db.execute(
+            "CREATE TABLE rows (" + ", ".join(f"{name} TEXT" for name in columns) + ")"
+        )
+        placeholders = ", ".join("?" for _ in columns)
+        db.executemany(
+            f"INSERT INTO rows ({', '.join(columns)}) VALUES ({placeholders})",
+            [tuple(row[name] for name in columns) for row in rows],
+        )
+        return list(db.execute(f"SELECT {', '.join(columns)} FROM rows"))
+
     def _run_show_smart_list(self, smart_ref, rows, *, sections=None, memberships=None):
         extras = {row["Z_PK"]: 0 for row in rows}
         tags = {row["Z_PK"]: [] for row in rows}
         with (
-            mock.patch.object(self.remctl, "q_smart_list_sections", return_value=sections or []),
+            mock.patch.object(
+                self.remctl,
+                "q_smart_list_sections",
+                return_value=self._sqlite_rows(sections or []),
+            ),
             mock.patch.object(
                 self.remctl,
                 "q_smart_list_section_memberships",
@@ -1766,6 +1788,44 @@ class CliTests(unittest.TestCase):
         self.assertIsNone(by_title["Unsectioned flagged"]["smartList"]["sectionId"])
         self.assertNotIn("section", by_title["Unsectioned flagged"])
         self.assertNotIn("sectionId", by_title["Unsectioned flagged"])
+
+    def test_show_smart_list_json_uses_sqlite_section_rows(self):
+        db = sqlite3.connect(":memory:")
+        db.row_factory = sqlite3.Row
+        db.execute(
+            "CREATE TABLE ZREMCDBASESECTION ("
+            "Z_PK INTEGER PRIMARY KEY, ZDISPLAYNAME TEXT, ZSMARTLIST INTEGER, "
+            "ZCKIDENTIFIER TEXT, ZMARKEDFORDELETION INTEGER)"
+        )
+        db.execute(
+            "INSERT INTO ZREMCDBASESECTION "
+            "(Z_PK, ZDISPLAYNAME, ZSMARTLIST, ZCKIDENTIFIER, ZMARKEDFORDELETION) "
+            "VALUES (1, 'Next', 1, 'NEXT-ID', 0)"
+        )
+        sections = self.remctl.q_smart_list_sections(db, 1)
+        self.assertTrue(sections)
+        self.assertIsInstance(sections[0], sqlite3.Row)
+        self.assertFalse(hasattr(sections[0], "get"))
+        rows = [{**self._show_row(1, "Flagged task", "REM-FLAG"), "ZFLAGGED": 1, "list_name": "Work"}]
+        smart_ref = {
+            "id": 1,
+            "title": "To Do",
+            "objectUUID": "SMART-TODO",
+            "kind": "custom",
+            "smartListType": self.remctl.CUSTOM_SMART_LIST_TYPE,
+            "filterData": b'{"flagged":true}',
+        }
+        try:
+            payload = self._run_show_smart_list(
+                smart_ref,
+                rows,
+                sections=sections,
+                memberships={"REM-FLAG": "Next"},
+            )
+        finally:
+            db.close()
+        self.assertEqual(payload[0]["smartList"]["section"], "Next")
+        self.assertEqual(payload[0]["smartList"]["sectionId"], "NEXT-ID")
 
     def test_show_builtin_flagged_json_shape(self):
         rows = [{**self._show_row(1, "Starred", "REM-1"), "ZFLAGGED": 1, "list_name": "Work"}]

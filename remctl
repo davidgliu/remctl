@@ -9478,7 +9478,7 @@ def cmd_show_smart_list(a, db, smart_ref):
         section_id_by_name = {
             section["ZDISPLAYNAME"]: section["ZCKIDENTIFIER"]
             for section in secs
-            if section.get("ZDISPLAYNAME") and section.get("ZCKIDENTIFIER")
+            if _row_get(section, "ZDISPLAYNAME") and _row_get(section, "ZCKIDENTIFIER")
         }
         payload = []
         for item in items:
