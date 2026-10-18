@@ -1,0 +1,27 @@
+# Ruff resolves paths here against .agent/, hence the ../ prefixes.
+line-length = 100
+extend-exclude = ["ratchet.py"]
+
+[lint]
+select = ["E4", "E7", "E9", "F", "I", "B", "UP", "S", "BLE", "DTZ", "TID251", "RUF100", "PGH004"]
+
+[lint.per-file-ignores]
+"../tests/**" = ["S101"]
+"../src/*/clock.py" = ["TID251"]
+"../src/*/client.py" = ["TID251", "S310"]
+
+[lint.flake8-tidy-imports.banned-api]
+"datetime.datetime.now".msg = "Read time through the Clock in clock.py."
+"datetime.datetime.utcnow".msg = "Read time through the Clock in clock.py."
+"datetime.datetime.today".msg = "Read time through the Clock in clock.py."
+"datetime.date.today".msg = "Read time through the Clock in clock.py."
+"time.time".msg = "Read time through the Clock in clock.py."
+"time.time_ns".msg = "Read time through the Clock in clock.py."
+"os.system".msg = "Use subprocess.run with an argument list."
+"os.popen".msg = "Use subprocess.run with an argument list."
+"urllib.request".msg = "Call services through client.py, one client per service."
+"http.client".msg = "Call services through client.py, one client per service."
+"requests".msg = "Call services through client.py, one client per service."
+"httpx".msg = "Call services through client.py, one client per service."
+"typing.no_type_check".msg = "Fix the types; no_type_check turns mypy off for the function."
+"typing_extensions.no_type_check".msg = "Fix the types; no_type_check turns mypy off for the function."

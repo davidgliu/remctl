@@ -1,0 +1,39 @@
+# pull_request_target runs the base branch's copy of this file, so a PR
+# cannot edit the job that judges it. It checks out base only and fetches the PR head as
+# objects, then runs base's ratchet.py against them; PR code never executes here.
+name: ratchet
+
+on:
+  # zizmor: ignore[dangerous-triggers] runs the base copy and never checks out PR code
+  pull_request_target:  # ci-check: ignore CI006 runs the base copy and never checks out PR code
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  ratchet:
+    if: ${{ !github.event.pull_request.draft }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1  # zizmor: ignore[artipacked]
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          fetch-depth: 0
+      - name: ratchet (base copy)
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin "$HEAD_SHA"
+          if ! git cat-file -e "$BASE:.agent/ratchet.py" 2>/dev/null; then
+            echo "ratchet: base has no ratchet.py (adoption)"
+            exit 0
+          fi
+          git show "$BASE:.agent/ratchet.py" | python3 - --base "$BASE" --head "$HEAD_SHA"

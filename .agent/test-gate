@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+set -uo pipefail
+cd "$(dirname "$0")/.." || exit 2
+
+tools=(uv run --locked --quiet --with-requirements .agent/tools.txt)
+failed=()
+
+step() {
+  local name=$1
+  shift
+  echo "== $name"
+  "$@" || failed+=("$name")
+}
+
+shellcheck_files() {
+  git ls-files -z -- '*.sh' .agent/test-gate | xargs -0 "${tools[@]}" shellcheck
+}
+
+entry_point() {
+  local script
+  script=$(uv run --locked --quiet python -c 'import tomllib; print(*tomllib.load(open("pyproject.toml", "rb"))["project"]["scripts"])') || return 1
+  uv run --locked --quiet "$script" --version
+}
+
+step ruff "${tools[@]}" ruff check .
+step format "${tools[@]}" ruff format --check .
+step mypy "${tools[@]}" mypy
+step pytest "${tools[@]}" pytest -q
+step shellcheck shellcheck_files
+step build uv build --quiet --out-dir dist
+step entry-point entry_point
+step ratchet uv run --locked --quiet python .agent/ratchet.py
+
+if [ "${#failed[@]}" -gt 0 ]; then
+  echo "gate failed: ${failed[*]}"
+  exit 1
+fi
+echo "gate ok"
