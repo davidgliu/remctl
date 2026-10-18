@@ -1,0 +1,7 @@
+# Written by copier; edit through `copier update`, not by hand.
+_commit: v0.3.0
+_src_path: gh:davidgliu/app-kit
+app_name: remctl
+description: Apple Reminders CLI for macOS
+package_name: remctl
+starter: cli
