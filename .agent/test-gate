@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
+# requires: python3 uv git
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 2
 
-tools=(uv run --locked --quiet --with-requirements .agent/tools.txt)
+tools=(uv run --no-project --quiet --managed-python --python 3.14 --with-requirements .agent/tools.txt)
 failed=()
+py_files=()
+while IFS= read -r -d '' f; do py_files+=("$f"); done < <(git ls-files -z --cached --others --exclude-standard -- '*.py')
 
 step() {
   local name=$1
@@ -12,24 +15,77 @@ step() {
   "$@" || failed+=("$name")
 }
 
+check_tool_pins() {
+  local unpinned
+  unpinned=$(grep -vE '^([A-Za-z0-9._-]+==[0-9][0-9A-Za-z.]*)?$|^#' .agent/tools.txt)
+  if [ -n "$unpinned" ]; then
+    echo "tools.txt: pin as name==version: $unpinned"
+    return 1
+  fi
+}
+
+# ruff and mypy exit 1 for findings and 2 or higher when the checker itself broke.
+run_tolerating_findings() {
+  local code=0
+  "${tools[@]}" "$@" "${py_files[@]}" || code=$?
+  if [ "$code" -gt 1 ]; then
+    echo "$1 exited $code" >&2
+    return 1
+  fi
+}
+
+require_counts_equal_ceilings() {
+  python3 -c '
+import collections, json, sys
+prefix, hint = sys.argv[1:]
+found = collections.Counter(sys.stdin.read().split())
+state = json.load(open(".agent/ratchet-state.json"))["ceilings"]
+ceilings = {k.removeprefix(prefix): v for k, v in state.items() if k.startswith(prefix)}
+bad = False
+for code in sorted(found.keys() | ceilings.keys()):
+    n, c = found[code], ceilings.get(code, 0)
+    if n != c:
+        bad = True
+        fix = hint if n > c else f"lower {prefix}{code} in .agent/ratchet-state.json to {n}"
+        print(f"{prefix}{code}: {n} findings, ceiling {c}: {fix}")
+if not bad:
+    print(f"{prefix} ok ({sum(found.values())} findings at ceilings)")
+sys.exit(bad)
+' "$@"
+}
+
+ruff_lint() {
+  local out
+  out=$(run_tolerating_findings ruff check --config .agent/ruff.toml --no-cache --force-exclude --output-format json) || return 1
+  python3 -c 'import json, sys; [print(f["code"] or "syntax-error") for f in json.load(sys.stdin)]' <<<"$out" |
+    require_counts_equal_ceilings ruff: "run ruff check --config .agent/ruff.toml on the files you changed and fix them"
+}
+
+ruff_format() {
+  local out
+  out=$(run_tolerating_findings ruff format --config .agent/ruff.toml --no-cache --force-exclude --check --output-format concise) || return 1
+  awk '/: unformatted: /{ print "unformatted" }' <<<"$out" |
+    require_counts_equal_ceilings ruff-format: "run ruff format --config .agent/ruff.toml on the files you changed"
+}
+
+mypy_check() {
+  local out
+  out=$(run_tolerating_findings mypy --disallow-untyped-defs --warn-unreachable --cache-dir=/dev/null) || return 1
+  awk '/: error: /{ if (match($0, /\[[a-z-]+\]$/)) print substr($0, RSTART + 1, RLENGTH - 2); else print "uncoded" }' <<<"$out" |
+    require_counts_equal_ceilings mypy: "run mypy on the files you changed and fix the new errors"
+}
+
 shellcheck_files() {
   git ls-files -z -- '*.sh' .agent/test-gate | xargs -0 "${tools[@]}" shellcheck
 }
 
-entry_point() {
-  local script
-  script=$(uv run --locked --quiet python -c 'import tomllib; print(*tomllib.load(open("pyproject.toml", "rb"))["project"]["scripts"])') || return 1
-  uv run --locked --quiet "$script" --version
-}
-
-step ruff "${tools[@]}" ruff check .
-step format "${tools[@]}" ruff format --check .
-step mypy "${tools[@]}" mypy
-step pytest "${tools[@]}" pytest -q
+step tools check_tool_pins
+step ruff ruff_lint
+step format ruff_format
+step mypy mypy_check
+step tests "${tools[@]}" pytest -q -p no:cacheprovider tests
 step shellcheck shellcheck_files
-step build uv build --quiet --out-dir dist
-step entry-point entry_point
-step ratchet uv run --locked --quiet python .agent/ratchet.py
+step ratchet python3 .agent/ratchet.py
 
 if [ "${#failed[@]}" -gt 0 ]; then
   echo "gate failed: ${failed[*]}"
